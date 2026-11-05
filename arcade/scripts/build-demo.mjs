@@ -41,6 +41,29 @@ ${css}
 </body>
 </html>
 `;
+// --artifact <file>: also write a page fragment (no doctype/head/body; the
+// host wraps it) with a phone-safe side gutter, for publishing as a web page.
+const ai = process.argv.indexOf('--artifact');
+if (ai > 0 && process.argv[ai + 1]) {
+  const frag = `<title>Arcade Arena Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Press+Start+2P&display=swap">
+<style>
+/* Single-look page: a neon arcade cabinet, dark in every theme. Stage fits the padded body. */
+:root { color-scheme: dark; --bg: #000; --panel: #0b0a16; }
+${css}
+html, body { height: 100%; }
+body { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0; }
+@media (prefers-reduced-motion: reduce) { #gear { transition: none; } }
+</style>
+<div id="stage"><canvas id="post"></canvas><canvas id="hud"></canvas></div>
+<script>${js}</script>
+`;
+  fs.writeFileSync(process.argv[ai + 1], frag);
+  console.log(`wrote ${process.argv[ai + 1]} (${Math.round(frag.length / 1024)} KB)`);
+}
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
 const file = path.join(ROOT, 'dist/arena-demo.html');
 fs.writeFileSync(file, html);

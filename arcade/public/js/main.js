@@ -78,8 +78,11 @@ const battle = new Battle(env);
 
 let S = 1;
 function layout() {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  // Fit inside the body's content box (OBS: the whole source; pages with a
+  // side gutter or safe-area padding: the padded area).
+  const cs = getComputedStyle(document.body);
+  const vw = Math.max(1, document.body.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) || window.innerWidth;
+  const vh = Math.max(1, document.body.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) || window.innerHeight;
   const scale = Math.min(vw / W, vh / H);
   const cssW = Math.max(1, Math.floor(W * scale));
   const cssH = Math.max(1, Math.floor(H * scale));
