@@ -150,6 +150,38 @@ const theme = THEMES['azure-inferno'];
     b.updateCommanders(0.016);
     assert.deepEqual(b.commanders.B.map((c) => c.rec.id), ['g1', 'c2', 'c3'], 'the Lion gifter (auto-assigned to B) outranks everyone');
   });
+  test('coins climb the dimension ladder and perks apply', () => {
+    assert.equal(b.asc.level, 1);
+    b.asc.energy = weights.ascension.thresholds[2] + 1; // straight to D3
+    b.updateAscension(0.016);
+    b.updateAscension(0.016);
+    assert.equal(b.asc.level, 3);
+    b.asc.energy = 0;
+    for (let i = 0; i < 400; i++) b.updateAscension(0.1);
+    assert.ok(b.asc.level < 3, 'energy drain lowers the dimension');
+  });
+  test('rift race: first team to the goal gets the buff', () => {
+    b.rift.idx = 0; // like storm
+    b.riftIncoming();
+    assert.equal(b.rift.phase, 'incoming');
+    b.updateRift(weights.rifts.warnSeconds + 0.1);
+    assert.equal(b.rift.phase, 'active');
+    const goal = b.rift.goal;
+    send('like', { user: user('s1'), count: goal - 1 });
+    assert.equal(b.rift.phase, 'active');
+    send('like', { user: user('s1'), count: 1 });
+    assert.equal(b.rift.winner, 'A');
+    assert.equal(b.teams.A.buffs.hyper, weights.rifts.buffSeconds);
+  });
+  test('rift with nobody at the goal collapses without a winner', () => {
+    b.rift.phase = 'idle';
+    b.rift.idx = 1;
+    b.riftIncoming();
+    b.updateRift(weights.rifts.warnSeconds + 0.1);
+    b.updateRift(weights.rifts.durationSeconds + 0.1);
+    assert.equal(b.rift.phase, 'result');
+    assert.equal(b.rift.winner, null);
+  });
   test('killing a bounty target pays the other team', () => {
     const victim = b.users.get('c2').unit;
     b.teams.B.bounty = victim;
@@ -187,6 +219,7 @@ const minutes = 20;
 let rounds = 0;
 let lastRound = battle.round;
 let worstMs = 0;
+let slow = 0;
 let totalMs = 0;
 let frames = 0;
 let gateOpens = 0;
@@ -201,6 +234,7 @@ for (let f = 0; f < minutes * 60 * 60; f++) {
   totalMs += ms;
   frames++;
   if (ms > worstMs) worstMs = ms;
+  if (ms > 8) slow++;
   if (battle.round !== lastRound) {
     rounds++;
     lastRound = battle.round;
@@ -223,7 +257,7 @@ for (let f = 0; f < minutes * 60 * 60; f++) {
 }
 mock.stop();
 console.log(`  ok  ${minutes} simulated minutes, ${events} events, ${rounds} rounds finished, ${gateOpens} execution gates opened`);
-console.log(`  ok  battle.update: avg ${(totalMs / frames).toFixed(3)} ms, worst ${worstMs.toFixed(2)} ms per frame (budget at 60 fps: 16.7 ms)`);
+console.log(`  ok  battle.update: avg ${(totalMs / frames).toFixed(3)} ms, worst ${worstMs.toFixed(2)} ms per frame (budget at 60 fps: 16.7 ms), ${slow} of ${frames} frames over 8 ms`);
 assert.ok(rounds >= 1, 'expected at least one finished round');
 passed += 2;
 console.log(`\n${passed} checks passed`);

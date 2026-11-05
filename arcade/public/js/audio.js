@@ -161,6 +161,13 @@ export class Sfx {
       case 'meteor':
         if (this.gate(name, 120)) this.noise(0.5, 0.08, 5000, 200, 'bandpass');
         break;
+      case 'ascend':
+        if (this.gate(name, 1500)) {
+          [220, 330, 440, 660, 880, 1320].forEach((f, i) => this.tone(f, f * 1.5, 0.5, 'sawtooth', 0.045, i * 0.06));
+          this.noise(1.6, 0.12, 300, 12000, 'bandpass');
+          this.tone(55, 110, 1.8, 'sine', 0.25);
+        }
+        break;
       case 'shield':
         if (this.gate(name, 150)) this.tone(880, 1760, 0.25, 'sine', 0.06);
         break;
@@ -222,14 +229,27 @@ export class Music {
     this.duck = 1;
     this.gain = null;
     this.timer = null;
+    this.dim = 1;
+    this.kicks = [];
+  }
+
+  // 0..1 envelope that spikes on every kick drum; drives beat-synced visuals.
+  pulse() {
+    const c = this.sfx.ctx;
+    if (!c || c.state !== 'running' || !this.on || this.intensity < 0 || !this.kicks.length) return 0;
+    const now = c.currentTime;
+    let last = -1;
+    for (const k of this.kicks) if (k <= now && k > last) last = k;
+    return last < 0 ? 0 : Math.exp(-(now - last) * 7);
   }
 
   start() {
     if (!this.timer) this.timer = setInterval(() => this.tick(), 25);
   }
 
-  setLevel(intensity, duck) {
-    this.intensity = intensity;
+  setLevel(intensity, duck, dim = 1) {
+    this.dim = dim;
+    this.intensity = dim >= 5 && intensity >= 0 ? Math.max(1, intensity) : intensity;
     this.duck = duck;
     if (this.gain) {
       const c = this.sfx.ctx;
@@ -251,7 +271,7 @@ export class Music {
       this.next = 0;
       return;
     }
-    const tempo = this.intensity >= 2 ? 146 : this.intensity === 1 ? 132 : 118;
+    const tempo = (this.intensity >= 2 ? 146 : this.intensity === 1 ? 132 : 118) + (this.dim - 1) * 2;
     const len = 60 / tempo / 4;
     if (this.next < c.currentTime) this.next = c.currentTime + 0.05;
     while (this.next < c.currentTime + 0.12) {
@@ -298,7 +318,11 @@ export class Music {
     const bar = PROG[(s >> 4) % 4];
     const i = s % 16;
     // drums
+    // D3+: a soft pad chord under each bar
+    if (i === 0 && this.dim >= 3) for (const tn of bar.tones) this.note(t, hz(bar.root + 12 + tn), len * 15, 'triangle', 0.035);
     if (i % 4 === 0) {
+      this.kicks.push(t);
+      if (this.kicks.length > 8) this.kicks.shift();
       const c = this.sfx.ctx;
       const o = c.createOscillator();
       const g = c.createGain();

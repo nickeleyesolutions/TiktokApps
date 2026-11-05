@@ -16,6 +16,30 @@
 // same thing. Randomness is only cosmetic (launch angles, particles).
 import { W, TAU, clamp, rand, damp, easeOutBack, cleanName, speakable, fmt, rgba } from './util.js';
 import { avatarImage, pixelAvatar, unitSprite } from './sprites.js';
+import { HyperCube, axisColors } from './hyper.js';
+
+// Dimension ladder. Index = level - 1.
+export const DIMENSIONS = [
+  { name: 'ARCADE', roman: 'I', perk: '' },
+  { name: 'AURORA', roman: 'II', perk: 'GIFT VOLLEYS +25% SEEKERS' },
+  { name: 'TESSERACT', roman: 'III', perk: 'ALL GIFTS +10% POWER' },
+  { name: 'KALEIDOSCOPE', roman: 'IV', perk: 'ALL TURNS +15% SPEED' },
+  { name: 'FIFTH DIMENSION', roman: 'V', perk: 'ALL GIFTS +25% POWER' },
+];
+const DIM_GIFT = [1, 1, 1.1, 1.1, 1.25];
+const DIM_ATB = [1, 1, 1, 1.15, 1.15];
+
+// Rift race types, played in this order (deterministic rotation).
+export const RIFTS = [
+  { kind: 'like', title: 'LIKE STORM', unit: 'LIKES', reward: 'hyper', rewardName: 'HYPERDRIVE', rewardText: 'TURNS x1.6', min: 150, max: 6000 },
+  { kind: 'gift', title: 'GIFT RUSH', unit: 'GIFTS', reward: 'prism', rewardName: 'PRISM SHIELD', rewardText: 'BASE TAKES -30% DMG', min: 5, max: 300 },
+  { kind: 'chat', title: 'UNITY CALL', unit: 'MESSAGES', reward: 'swarm', rewardName: 'SWARM', rewardText: '+15 BARRAGE +15 HASTE', min: 12, max: 400 },
+  { kind: 'coin', title: 'COIN SURGE', unit: 'COINS', reward: 'phase', rewardName: 'PHASE SHIFT', rewardText: 'GIFTS x1.5', min: 100, max: 30000 },
+];
+const nice = (v) => {
+  const m = Math.pow(10, Math.max(0, Math.floor(Math.log10(Math.max(1, v))) - 1));
+  return Math.max(1, Math.round(v / m) * m);
+};
 
 export const UNIT_R = 24;
 // Stacks go to x99 for the show, but their effect has a soft cap so a long
@@ -111,6 +135,12 @@ export class Battle {
     this.commanders = { A: [], B: [] };
     this.cmdT = 0;
     this.bountyT = 20;
+    this.asc = { energy: 0, level: 1, shown: 1, shift: 0 };
+    this.rift = { phase: 'idle', t: this.w.rifts.firstDelay, idx: 0, type: null, goal: 0, prog: { A: 0, B: 0 }, winner: null };
+    this.act = { like: 0, gift: 0, chat: 0, coin: 0 }; // counts this second
+    this.rate = { like: 0, gift: 0, chat: 0, coin: 0 }; // smoothed per-second rates
+    this.rateT = 1;
+    this.cages = { A: new HyperCube(4), B: new HyperCube(4) };
   }
 
   get w() {
@@ -144,6 +174,7 @@ export class Battle {
       barrageT: 1,
       wins: 0,
       bounty: null,
+      buffs: { hyper: 0, prism: 0, phase: 0 },
     };
   }
 
@@ -427,6 +458,7 @@ export class Battle {
     const c = def.core;
     const crit = def.staggerTime > 0;
     if (crit) amt *= w.stagger.damageMul;
+    if (def.buffs.prism > 0) amt *= 1 - w.rifts.prismReduce;
     if (def.gate.active) {
       if (src.finisher) return this.execute(def, src);
       if (c.hp > 1) c.hp = Math.max(1, c.hp - 1); // chip damage only
@@ -628,6 +660,7 @@ export class Battle {
       t.gate = { active: false, t: 0, winds: 0, tier: w.execution.finisherTier, lastSec: 99 };
       t.executing = false;
       t.bounty = null;
+      t.buffs = { hyper: 0, prism: 0, phase: 0 };
       for (const u of t.units.concat(t.reserve)) {
         if (u.npc) this.despawn(u, true, false);
         else {
@@ -929,8 +962,14 @@ export class Battle {
     const rec = this.ensureUser(e.user);
     const w = this.w;
     const first = (String(e.text || '').trim().toLowerCase().split(/\s+/)[0] || '').replace(/[^a-z0-9]/g, '');
-    if (w.chat.joinA.includes(first)) return this.join(rec, 'A');
-    if (w.chat.joinB.includes(first)) return this.join(rec, 'B');
+    this.act.chat++;
+    let key = null;
+    if (w.chat.joinA.includes(first)) key = 'A';
+    else if (w.chat.joinB.includes(first)) key = 'B';
+    if (key && !rec.team) this.addEnergy(w.ascension.perJoin);
+    const team = rec.team || key;
+    if (team) this.riftProgress(team, 'chat', 1);
+    if (key) return this.join(rec, key);
     if (rec.unit && rec.unit.alive) this.rally(rec);
   }
 
@@ -941,6 +980,9 @@ export class Battle {
     const t = this.teams[key];
     const enemy = this.teams[t.enemy];
     t.mana += e.count;
+    this.act.like += e.count;
+    this.addEnergy(e.count * w.ascension.perLike);
+    this.riftProgress(key, 'like', e.count);
     if (this.phase === 'battle' && enemy.staggerTime <= 0 && enemy.staggerImmune <= 0) {
       enemy.stagger += e.count * w.stagger.likeFill;
       if (enemy.stagger >= 100) this.triggerStagger(enemy);
@@ -964,6 +1006,7 @@ export class Battle {
 
   onShare(e) {
     const rec = this.ensureUser(e.user);
+    this.addEnergy(this.w.ascension.perShare);
     const u = this.ensureFighter(rec);
     const t = this.teams[rec.team];
     if (u) {
@@ -1005,6 +1048,13 @@ export class Battle {
     let mul = this.happyHour > 0 ? w.gifts.happyHourMul : 1;
     const under = this.underdogMul(key);
     mul *= under;
+    mul *= DIM_GIFT[this.asc.level - 1];
+    if (t.buffs.phase > 0) mul *= w.rifts.phaseMul;
+    this.act.gift += n;
+    this.act.coin += coins * n;
+    this.addEnergy(coins * n * w.ascension.perCoin);
+    this.riftProgress(key, 'gift', n);
+    this.riftProgress(key, 'coin', coins * n);
     if (w.firstGift.enabled && !rec.gifted) {
       mul *= w.firstGift.mul;
       this.banner('FIRST GIFT', `${cleanName(rec.name, 14).toUpperCase()} +${Math.round((w.firstGift.mul - 1) * 100)}%`, '#7dff9a', { side: key, small: true });
@@ -1029,7 +1079,7 @@ export class Battle {
     if (t.limitReady > 0 && tier >= w.limit.triggerTier) this.startLimit(t, rec);
 
     if (tier === 1) {
-      const cnt = clamp(3 * n, 3, 36);
+      const cnt = clamp(Math.ceil(3 * n * (this.asc.level >= 2 ? 1.25 : 1)), 3, 40);
       this.volley(t, ox, oy, cnt, power / cnt, src, 0.035);
       this.addStack(t, 'bravery', n);
       this.addStack(t, 'barrage', n);
@@ -1041,7 +1091,7 @@ export class Battle {
         unit.spriteKey = '';
       }
       this.addStack(t, 'haste', 5 * n);
-      const cnt = clamp(8 * n, 8, 48);
+      const cnt = clamp(Math.ceil(8 * n * (this.asc.level >= 2 ? 1.25 : 1)), 8, 54);
       this.volley(t, ox, oy, cnt, power / cnt, src, 0.03);
       this.banner('SURGE', cleanName(rec.name, 16).toUpperCase(), this.col(key).c1, { side: key, small: true });
     } else if (tier === 3) {
@@ -1082,6 +1132,21 @@ export class Battle {
       case 'heal':
         if (t) t.core.hp = t.core.max;
         break;
+      case 'openRift':
+        if (this.phase === 'battle') {
+          const i = RIFTS.findIndex((r) => r.kind === c.kind);
+          if (i >= 0) this.rift.idx = i;
+          this.riftIncoming();
+        }
+        break;
+      case 'ascend': {
+        const th = w.ascension.thresholds;
+        const lvl = clamp(this.asc.level + (Number(c.delta) || 1), 1, 5);
+        this.asc.energy = th[lvl - 1] + (lvl < 5 ? (th[lvl] - th[lvl - 1]) * 0.3 : 500);
+        if (lvl > this.asc.level) this.levelUp(lvl);
+        else this.asc.level = lvl;
+        break;
+      }
       case 'setHp':
         if (t && this.phase === 'battle' && !t.gate.active) t.core.hp = Math.max(t.core.max * (w.execution.gatePct / 100 + 0.01), (t.core.max * clamp(Number(c.pct) || 50, 1, 100)) / 100);
         break;
@@ -1146,6 +1211,8 @@ export class Battle {
     this.updateMeteors(dt);
     this.updateCommanders(dt);
     this.updateBounties(dt);
+    this.updateAscension(dt);
+    this.updateRift(dt);
 
     if (w.npc.enabled && (this.npcTimer -= dt) <= 0) {
       this.npcTimer = w.npc.checkSeconds;
@@ -1185,6 +1252,7 @@ export class Battle {
         t.staggerImmune = w.stagger.immuneSeconds;
       }
     } else if (t.staggerImmune > 0) t.staggerImmune -= dt;
+    for (const k in t.buffs) if (t.buffs[k] > 0) t.buffs[k] = Math.max(0, t.buffs[k] - dt);
     if (t.limitReady > 0 && (t.limitReady -= dt) <= 0) {
       t.limitReady = 0;
       t.limit = 60;
@@ -1231,7 +1299,7 @@ export class Battle {
       }
     }
     if (this.cine) return; // turn bars pause during cinematics
-    const haste = (1 + soft(t.stacks.haste) * w.atb.hastePerStack + (u.elite > 0 ? 0.35 : 0)) * (u.rec && u.rec.sub ? w.subs.atbMul : 1);
+    const haste = (1 + soft(t.stacks.haste) * w.atb.hastePerStack + (u.elite > 0 ? 0.35 : 0)) * (u.rec && u.rec.sub ? w.subs.atbMul : 1) * DIM_ATB[this.asc.level - 1] * (t.buffs.hyper > 0 ? w.rifts.hyperMul : 1);
     u.atb += (dt * haste) / Math.max(0.5, w.atb.baseSeconds);
     if (u.atb >= 1) {
       u.atb = 0;
@@ -1301,8 +1369,10 @@ export class Battle {
   drawWorld(ctx, S, time) {
     const th = this.env.theme();
     for (const k of ['A', 'B']) this.drawCore(ctx, this.teams[k], th[k], time);
+    this.drawRiftPortal(ctx, th, time);
     if (this.boss) this.drawBoss(ctx, time);
     for (const k of ['A', 'B']) this.drawCommanders(ctx, k, th[k], S, time);
+    if (this.w.hyper.orbits && this.asc.shown > 3.2) this.drawOrbits(ctx, th, time);
     for (const k of ['A', 'B']) {
       const t = this.teams[k];
       for (const u of t.units) this.drawUnit(ctx, t, u, th[k], S, time);
@@ -1349,6 +1419,12 @@ export class Battle {
     ctx.fill();
     hex(c.r, c.ang, col.c1, 4);
     hex(c.r * 0.72, -c.ang * 1.4, col.c2, 3);
+    if (this.w.hyper.cubes && this.asc.shown > 2.5) {
+      // D3+: each core sits inside its own rotating tesseract cage
+      const cage = this.cages[t.key];
+      cage.project(time * (1 + t.stacks.haste * 0.01) + (t.key === 'B' ? 7 : 0), x, y, c.r * 0.62, 1);
+      cage.draw(ctx, [col.c1, col.c2, '#ffffff', '#d36bff'], Math.min(1, this.asc.shown - 2.5) * 0.7, 1.5);
+    }
     // crystal
     const cr = c.r * 0.46;
     const g = ctx.createLinearGradient(x, y - cr, x, y + cr);
@@ -1783,6 +1859,208 @@ export class Battle {
     ctx.restore();
   }
 
+  // ------------------------------------------------------------ dimensions
+  addEnergy(x) {
+    if (!this.w.ascension.enabled || !(x > 0)) return;
+    this.asc.energy += x;
+  }
+
+  levelUp(lvl) {
+    this.asc.level = lvl;
+    this.asc.shift = 1;
+    const d = DIMENSIONS[lvl - 1];
+    this.banner(`DIMENSION ${d.roman}`, d.perk ? `${d.name}: ${d.perk}` : d.name, '#d36bff', { prio: 3, dur: 2.6 });
+    this.voice.say(`Dimension ${lvl}. ${d.name.toLowerCase()} unlocked!`, 3);
+    this.sfx.play('ascend');
+    this.flash = Math.max(this.flash, 0.45);
+    this.aberr = 1.6;
+    this.glitch = 0.8;
+  }
+
+  updateAscension(dt) {
+    const w = this.w.ascension;
+    const a = this.asc;
+    a.shift = Math.max(0, a.shift - dt * 0.6);
+    a.shown += (a.level - a.shown) * damp(1.2, dt);
+    if (!w.enabled) {
+      a.level = 1;
+      return;
+    }
+    a.energy = Math.max(0, a.energy - w.decayPerSec * a.level * dt);
+    const th = w.thresholds;
+    if (a.level < 5 && a.energy >= th[a.level]) this.levelUp(a.level + 1);
+    else if (a.level > 1 && a.energy < th[a.level - 1] * 0.85) {
+      a.level--;
+      this.banner(`DIMENSION ${DIMENSIONS[a.level - 1].roman}`, 'ENERGY FADING: FEED THE RIFT', '#9c98c8', { small: true });
+    }
+    // smoothed activity rates (for adaptive rift goals)
+    if ((this.rateT -= dt) <= 0) {
+      this.rateT = 1;
+      for (const k in this.act) {
+        this.rate[k] += (this.act[k] - this.rate[k]) * 0.08;
+        this.act[k] = 0;
+      }
+    }
+  }
+
+  // Progress (0..1) toward the next dimension, for the HUD ring.
+  ascProgress() {
+    const th = this.w.ascension.thresholds;
+    const a = this.asc;
+    if (a.level >= 5) return 1;
+    return clamp((a.energy - th[a.level - 1]) / (th[a.level] - th[a.level - 1]), 0, 1);
+  }
+
+  // ------------------------------------------------------------------ rifts
+  riftIncoming() {
+    const w = this.w.rifts;
+    const r = this.rift;
+    const type = RIFTS[r.idx % RIFTS.length];
+    r.idx++;
+    // goal: what one team would make in the race at the room's recent pace
+    const perTeam = (this.rate[type.kind] * w.durationSeconds) / 2;
+    r.goal = nice(clamp(perTeam * w.goalScale, type.min, type.max));
+    r.type = type;
+    r.phase = 'incoming';
+    r.t = w.warnSeconds;
+    r.prog = { A: 0, B: 0 };
+    r.winner = null;
+    r.lastSec = 99;
+    this.sfx.play('siren');
+    this.voice.say(`A rift is opening. ${type.title.toLowerCase()}! First team to ${r.goal} ${type.unit.toLowerCase()} unlocks ${type.rewardName.toLowerCase()}!`, 2);
+  }
+
+  riftProgress(team, kind, amount) {
+    const r = this.rift;
+    if (r.phase !== 'active' || r.type.kind !== kind || !(team === 'A' || team === 'B')) return;
+    r.prog[team] += amount;
+    if (r.prog[team] >= r.goal) this.riftEnd(team);
+  }
+
+  riftEnd(winner) {
+    const w = this.w;
+    const r = this.rift;
+    r.phase = 'result';
+    r.t = 4;
+    r.winner = winner;
+    if (!winner) {
+      this.banner('RIFT COLLAPSED', 'NOBODY REACHED THE GOAL', '#9c98c8', { small: true });
+      return;
+    }
+    const t = this.teams[winner];
+    const secs = w.rifts.buffSeconds;
+    const type = r.type;
+    if (type.reward === 'hyper') t.buffs.hyper = secs;
+    else if (type.reward === 'prism') {
+      t.buffs.prism = secs;
+      for (const u of t.units) u.shield = Math.max(u.shield, 15);
+    } else if (type.reward === 'phase') t.buffs.phase = secs;
+    else if (type.reward === 'swarm') {
+      this.addStack(t, 'barrage', 15);
+      this.addStack(t, 'haste', 15);
+    }
+    this.addEnergy(w.ascension.riftReward);
+    const color = this.col(winner).c1;
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * TAU;
+      this.fx.particle(W / 2, 600, Math.cos(a) * 300 + (t.core.x - W / 2) * 1.5, Math.sin(a) * 300, 0.9, 6, i % 2 ? color : '#ffffff', 0, 2.5);
+    }
+    this.fx.ring(t.core.x, t.core.y, color, 20, 200, 0.8, 8);
+    this.banner(`${type.rewardName}`, `${this.col(winner).name}: ${type.rewardText}`, color, { side: winner, prio: 2, dur: 2.4 });
+    this.voice.say(`${this.col(winner).name} unlocks ${type.rewardName.toLowerCase()}!`, 2);
+    this.sfx.play('limit');
+  }
+
+  updateRift(dt) {
+    const w = this.w.rifts;
+    const r = this.rift;
+    if (!w.enabled) {
+      r.phase = 'idle';
+      r.t = Math.max(r.t, 5);
+      return;
+    }
+    const gate = this.teams.A.gate.active || this.teams.B.gate.active;
+    if (r.phase === 'idle' && (gate || this.cine)) return; // never start on top of a finisher
+    r.t -= dt;
+    if (r.phase === 'idle' && r.t <= 0) this.riftIncoming();
+    else if (r.phase === 'incoming') {
+      const sec = Math.ceil(r.t);
+      if (sec !== r.lastSec && sec <= 3 && sec > 0) this.sfx.play('ready');
+      r.lastSec = sec;
+      if (r.t <= 0) {
+        r.phase = 'active';
+        r.t = w.durationSeconds;
+        this.sfx.play('stagger');
+      }
+    } else if (r.phase === 'active' && r.t <= 0) this.riftEnd(null);
+    else if (r.phase === 'result' && r.t <= 0) {
+      r.phase = 'idle';
+      r.t = w.everySeconds;
+    }
+  }
+
+  drawRiftPortal(ctx, th, time) {
+    const r = this.rift;
+    if (r.phase === 'idle') return;
+    const grow = r.phase === 'incoming' ? 1 - r.t / this.w.rifts.warnSeconds : r.phase === 'result' ? r.t / 4 : 1;
+    const R = 30 + 60 * clamp(grow, 0, 1);
+    const cx = W / 2;
+    const cy = 600;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 5; i++) {
+      const sides = 5 + (i % 3);
+      const rr = R * (1 - i * 0.16);
+      const rot = time * (i % 2 ? -0.8 : 0.6) * (1 + i * 0.3);
+      ctx.strokeStyle = `hsla(${(time * 60 + i * 50) % 360},100%,65%,${0.65 - i * 0.08})`;
+      ctx.lineWidth = 3 - i * 0.4;
+      ctx.beginPath();
+      for (let k = 0; k <= sides; k++) {
+        const a = rot + (k * TAU) / sides;
+        const px = cx + Math.cos(a) * rr;
+        const py = cy + Math.sin(a) * rr * 0.92;
+        if (k) ctx.lineTo(px, py);
+        else ctx.moveTo(px, py);
+      }
+      ctx.stroke();
+    }
+    const core = ctx.createRadialGradient(cx, cy, 2, cx, cy, R);
+    core.addColorStop(0, 'rgba(255,255,255,0.55)');
+    core.addColorStop(0.4, 'rgba(211,107,255,0.25)');
+    core.addColorStop(1, 'rgba(211,107,255,0)');
+    ctx.fillStyle = core;
+    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    ctx.restore();
+    // inflowing motes from both armies
+    if (r.phase === 'active' && this.fx.p.length < 2400) {
+      for (const k of ['A', 'B']) {
+        const a = Math.random() * TAU;
+        const d = R * 2.2;
+        this.fx.particle(cx + Math.cos(a) * d, cy + Math.sin(a) * d, -Math.cos(a) * d * 1.6, -Math.sin(a) * d * 1.6, 0.45, 3, th[k].c1, 0, 0.5);
+      }
+    }
+  }
+
+  // D4+: units get a tilted orbit ring, the "seen from another axis" look.
+  drawOrbits(ctx, th, time) {
+    const a = clamp(this.asc.shown - 3.2, 0, 1) * 0.55;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineWidth = 1.5;
+    for (const k of ['A', 'B']) {
+      const p = new Path2D();
+      for (const u of this.teams[k].units) {
+        const r = (u.elite > 0 ? ELITE_R : UNIT_R) + 9;
+        p.moveTo(u.x + r, u.y);
+        p.ellipse(u.x, u.y, r, r * 0.32, Math.sin(time * 0.7 + u.spin) * 0.6, 0, TAU);
+      }
+      ctx.strokeStyle = th[k].c1;
+      ctx.globalAlpha = a;
+      ctx.stroke(p);
+    }
+    ctx.restore();
+  }
+
   // ---------------------------------------------------------- persistence
   serialize() {
     const team = (t) => ({ hp: t.core.hp, wins: t.wins, stacks: { ...t.stacks }, stagger: t.stagger, mana: t.mana, limit: t.limit, gate: { ...t.gate } });
@@ -1842,6 +2120,7 @@ export class Battle {
       underdog: this.underdogMul(t.key) > 1,
       commanders: this.commanders[t.key].map((c) => ({ name: c.rec.name, coins: c.rec.coins })),
       bounty: t.bounty ? t.bounty.name : null,
+      buffs: { hyper: Math.ceil(t.buffs.hyper), prism: Math.ceil(t.buffs.prism), phase: Math.ceil(t.buffs.phase) },
     });
     return {
       round: this.round,
@@ -1854,6 +2133,9 @@ export class Battle {
       happyHour: Math.max(0, Math.ceil(this.happyHour)),
       boss: this.boss ? { hp: Math.round(this.boss.hp), t: Math.ceil(this.boss.t) } : null,
       cine: this.cine ? this.cine.type : null,
+      dimension: this.asc.level,
+      energy: Math.round(this.asc.energy),
+      rift: this.rift.phase === 'idle' ? { next: Math.ceil(this.rift.t) } : { phase: this.rift.phase, type: this.rift.type && this.rift.type.title, goal: this.rift.goal, A: Math.round(this.rift.prog.A), B: Math.round(this.rift.prog.B), t: Math.ceil(this.rift.t) },
     };
   }
 }

@@ -51,7 +51,7 @@ function teamHtml(t, color) {
 socket.on('status', (s) => {
   $('tA').innerHTML = teamHtml(s.A, '#3ae4ff');
   $('tB').innerHTML = teamHtml(s.B, '#ff3d5e');
-  $('meta').textContent = `round ${s.round} ${s.phase}${s.cine ? ' [' + s.cine + ']' : ''} | ${s.fps} fps @ ${s.res} | post ${s.post ? 'on' : 'off'} | sound ${s.audio ? 'on' : 'off (click the stage once)'} | seekers ${s.proj} | particles ${s.parts}${s.perf ? ' | cpu ' + s.perf.total + ' ms (battle ' + s.perf.world + ', hud ' + s.perf.hud + ')' : ''}${s.quality ? ' | auto-quality ' + s.quality : ''}${s.happyHour ? ' | happy hour ' + s.happyHour + 's' : ''}${s.boss ? ' | boss ' + s.boss.hp : ''}`;
+  $('meta').textContent = `D${s.dimension || 1} (${s.energy || 0} energy)${s.rift && s.rift.phase ? ' | rift ' + s.rift.type + ' ' + s.rift.phase + ' ' + s.rift.A + '/' + s.rift.B + ' of ' + s.rift.goal : s.rift ? ' | next rift ' + s.rift.next + 's' : ''} | round ${s.round} ${s.phase}${s.cine ? ' [' + s.cine + ']' : ''} | ${s.fps} fps @ ${s.res} | post ${s.post ? 'on' : 'off'} | sound ${s.audio ? 'on' : 'off (click the stage once)'} | seekers ${s.proj} | particles ${s.parts}${s.perf ? ' | cpu ' + s.perf.total + ' ms (battle ' + s.perf.world + ', hud ' + s.perf.hud + ')' : ''}${s.quality ? ' | auto-quality ' + s.quality : ''}${s.happyHour ? ' | happy hour ' + s.happyHour + 's' : ''}${s.boss ? ' | boss ' + s.boss.hp : ''}`;
 });
 
 socket.on('bridge', (b) => {

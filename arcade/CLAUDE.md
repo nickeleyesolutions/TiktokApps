@@ -41,6 +41,7 @@ director (phone) --- cmd / weights / mock ----------------+    status <-+
 - `public/js/` (stage):
   - `main.js`: boot, render loop, resolution, socket vs offline demo mode, hot reload.
   - `backdrop.js`: LAYER 1. Procedural synthwave or a file from `public/assets/`.
+  - `hyper.js`: LAYER 1.5, the dimension layer. `HyperCube` (N-D cube: tesseract, penteract) and `HyperField` (low-res WebGL2 shader: aurora, hyperspace, kaleidoscope, fractal lattice). Fades in by dimension level.
   - `combat.js`: LAYER 2 and all game rules (`Battle`). Draws cores, units, boss, cinematics.
   - `seekers.js`: pooled homing seekers and bolts. Knows nothing about rules.
   - `fx.js`: pooled particles, rings, lightning, slashes, damage numbers.
@@ -96,7 +97,10 @@ these numbers are under "Research notes".
 - **First gift bonus**: a viewer's first gift of the session gets `firstGift.mul`.
 - **Subscribers** (`isSub`): unit HP x `subs.hpMul`, ATB x `subs.atbMul`, inner white ring.
 - **Summon variants**: tier-4 gifts below `gifts.orbitalCoins` play the Leviathan, at or above it the Orbital Strike.
-- **Music**: procedural chiptune; speeds up and adds layers during stagger / happy hour / boss (level 1) and the execution gate (level 2), ducks under cinematics, stops on the victory screen.
+- **Dimensions (evolution)**: shared energy from coins, likes, shares, joins and rift wins climbs D1 ARCADE, D2 AURORA (+25% seekers per volley), D3 TESSERACT (+10% gift power, tesseract cages around the cores), D4 KALEIDOSCOPE (+15% turn speed, orbit rings on units), D5 FIFTH DIMENSION (+25% gift power, 5D penteract). Energy drains (`ascension.decayPerSec` x level), so the room must keep feeding it; a level drops below 85% of its threshold. Each level-up plays a screen fold (post `uWarp`) and a callout. HUD: the center hex shows the level, its ring shows progress.
+- **Rifts (countdown buffs)**: every `rifts.everySeconds` (never during a gate or cinematic) a rift warns for `warnSeconds`, then both teams race for `durationSeconds`. Types rotate in order: LIKE STORM (likes, HYPERDRIVE turns x1.6), GIFT RUSH (gift count, PRISM SHIELD base -30% damage + unit shields), UNITY CALL (chat messages, SWARM +15 barrage +15 haste), COIN SURGE (coins, PHASE SHIFT gifts x1.5). First team to the goal wins the buff for `buffSeconds`; nobody reaching it = rift collapses. Goals scale to the room's recent per-second rates (`goalScale`, with per-type floors and caps), so small and big rooms both get winnable races.
+- **Rotating guide card** (`guide.oracle`): always on screen, flips to a new "GIVE x / UNLOCK y" card every `guide.cardSeconds` and moves between three safe slots every two cards. Live state (gate open, limit ready, rift running, underdog) jumps the queue every other card. Turning `guide.oracle` off restores the old transient guide.
+- **Music**: procedural chiptune; D3+ adds a pad, each dimension adds tempo, kick drums drive a beat pulse used by bloom and the hyperfield; speeds up and adds layers during stagger / happy hour / boss (level 1) and the execution gate (level 2), ducks under cinematics, stops on the victory screen.
 - **Boss invasion**, **happy hour**: director buttons or owner chat commands.
 
 Owner chat commands (owners list, moderators, or the host): `!hh`, `!boss`,
@@ -129,6 +133,10 @@ director (or set `dev.autoHotReload`). The stage snapshots HP, roster, stacks
 and gauges to localStorage and restores them after the reload. Weight edits in
 `config/weights.json` apply instantly with no reload.
 
+**Add a rift type**: append to `RIFTS` in `combat.js` (`kind`, `title`, `unit`, `reward`, `rewardName`, `rewardText`, `min`, `max`), feed it with `riftProgress(team, kind, amount)` from the relevant event handler, and apply the reward in `riftEnd`. Keep the race deterministic (a goal, never odds).
+
+**Add a dimension layer**: shader layers live in `hyper.js` `FS`, gated by `uDim`. Keep busy layers above the horizon (`sky` mask) and under the soft cap; check D5 readability with units on screen.
+
 **Top vs bottom layout later**: change `slotPos`, `CORE_POS` and the volley
 launch angle in `combat.js`; seekers and FX are position-agnostic.
 
@@ -146,6 +154,13 @@ launch angle in `combat.js`; seekers and FX are position-agnostic.
 - Gambling: TikTok's Community Guidelines cover gambling under Regulated Commercial Activities: https://www.tiktok.com/community-guidelines/en/regulated-commercial-activities . The full current text was not reviewed here; check it before adding any new mechanic that involves chance.
 - Connector behavior (streaks, `repeatEnd`, `giftType 1`, "not a production-ready API", Euler Stream signing): `node_modules/tiktok-live-connector/README.md` v2.5.0, repo https://github.com/zerodytrash/TikTok-Live-Connector . Note: its README examples use `uniqueId`/`comment`, but proto v3 payloads use `displayId`/`content`; the normalizer accepts both.
 - Reference repos that exist on GitHub but were not reviewed: `k0d1r/tiktok-live-interactive-game`, `vamnguyen/tiktok-live-games`.
+- Higher-dimension visuals (technique references only; no code copied, all math in `hyper.js` is our own):
+  - Tesseract projection: https://github.com/tsherif/tesseract-explorer (MIT), https://github.com/ecuber/tesseract (describes the 4D to 3D to 2D double projection), Tesserxel 4D library docs: https://wxyhly-en.github.io/archives/tsxdev-four
+  - N-dimensional cubes: https://github.com/EjayNg-AI/n-dim-hypercube (MIT)
+  - Kaleidoscopic IFS folding (Knighty, 2010): https://blog.hvidtfeldts.net/index.php/2010/06/folding-space-ii-kaleidoscopic-fractals/ and the original thread https://www.fractalforums.com/sierpinski-gasket/kaleidoscopic-(escape-time-ifs)/
+  - Thin-film iridescence (our shader uses a cheap cosine palette as a stand-in): https://www.alanzucconi.com/2017/10/27/carpaint-shader-thin-film-interference/ and https://belcour.github.io/blog/research/2017/05/01/brdf-thin-film.html
+  - TikTok goal/ranking widgets for UI ideas: https://github.com/alexlobaza/TikTokStreamingToolkit (GPL-3.0: read for ideas only, do not copy code into this repo)
+- Persistent on-screen gift guides: the user chose an always-on rotating card. Whether TikTok treats a static gift menu as clutter is unverified [citation needed]; the card is compact, moves and changes, which keeps it from being a fixed price list either way.
 - Mock gift coin values in `shared/mock.js` (Rose 1, Galaxy 1000, Lion 29999, ...): [citation needed]. Real streams use each event's `diamondCount`.
 - Unverified claims from earlier planning (treat as hypotheses): static gift menus get penalized as clutter; TikTok OCR-scans streams for QR codes; shares are the strongest LIVE ranking signal; unattended streams get flagged unless audio varies; OBS browser sources capture Web Speech audio. [citation needed] for each.
 

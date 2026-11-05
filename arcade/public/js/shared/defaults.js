@@ -86,10 +86,18 @@ export const DEFAULT_WEIGHTS = {
   bounty: { enabled: true, everySeconds: 45, limitReward: 30, braveryReward: 10 },
   firstGift: { enabled: true, mul: 1.5 }, // a viewer's first gift of the session
   subs: { hpMul: 2, atbMul: 1.1 }, // subscriber / fan club unit perks
+  // Dimensions: shared energy from gifts, likes, shares and rift wins climbs
+  // the arena from D1 (arcade) to D5 (fifth dimension). Energy drains over
+  // time, so the room has to keep feeding it to stay high.
+  ascension: { enabled: true, thresholds: [0, 400, 1500, 4000, 10000], perCoin: 1, perLike: 0.05, perShare: 10, perJoin: 0.5, decayPerSec: 1.5, riftReward: 300 },
+  // Rifts: timed race events. A countdown warns, then both teams race to a
+  // goal; first to reach it unlocks a team buff. Goals scale to room activity.
+  rifts: { enabled: true, firstDelay: 35, everySeconds: 75, warnSeconds: 8, durationSeconds: 30, buffSeconds: 25, goalScale: 0.7, hyperMul: 1.6, prismReduce: 0.3, phaseMul: 1.5 },
+  hyper: { intensity: 0.9, prism: 1, cubes: true, orbits: true },
   npc: { enabled: true, minA: 3, minB: 6, checkSeconds: 3, perCheck: 2, hp: 14, damage: 4 },
   chat: { joinA: ['a', '1', 'left'], joinB: ['b', '2', 'right'], allowSwitch: false, rallyCooldown: 2 },
   boss: { hp: 1800, seconds: 60, fireEvery: 2.2 },
-  guide: { enabled: true, everySeconds: 12, showSeconds: 4 },
+  guide: { enabled: true, oracle: true, cardSeconds: 4, everySeconds: 12, showSeconds: 4 },
   round: { intermissionSeconds: 8 },
   audio: { master: 0.6, tts: true, ttsMinGapSeconds: 3, music: true, musicVolume: 0.35 },
   hud: { safeZones: false, feed: true, damageNumbers: true, names: true },
@@ -174,6 +182,20 @@ export const SCHEMA = [
   { group: 'Rivalry', path: 'bounty.everySeconds', label: 'New bounty every (s)', min: 10, max: 180, step: 5 },
   { group: 'Rivalry', path: 'subs.hpMul', label: 'Subscriber unit HP x', min: 1, max: 4, step: 0.25 },
 
+  { group: 'Dimensions & rifts', path: 'ascension.enabled', label: 'Dimension ladder (D1-D5)', type: 'toggle' },
+  { group: 'Dimensions & rifts', path: 'ascension.perCoin', label: 'Energy per coin', min: 0.1, max: 5, step: 0.1 },
+  { group: 'Dimensions & rifts', path: 'ascension.perLike', label: 'Energy per like', min: 0, max: 1, step: 0.01 },
+  { group: 'Dimensions & rifts', path: 'ascension.decayPerSec', label: 'Energy drain per second', min: 0, max: 10, step: 0.1 },
+  { group: 'Dimensions & rifts', path: 'hyper.intensity', label: 'Dimension visuals intensity', min: 0, max: 1.5, step: 0.05 },
+  { group: 'Dimensions & rifts', path: 'hyper.prism', label: 'Prism sheen', min: 0, max: 2, step: 0.05 },
+  { group: 'Dimensions & rifts', path: 'hyper.cubes', label: 'Hypercubes', type: 'toggle' },
+  { group: 'Dimensions & rifts', path: 'hyper.orbits', label: 'Unit orbit rings (D4+)', type: 'toggle' },
+  { group: 'Dimensions & rifts', path: 'rifts.enabled', label: 'Rift countdown events', type: 'toggle' },
+  { group: 'Dimensions & rifts', path: 'rifts.everySeconds', label: 'Rift every (s)', min: 20, max: 300, step: 5 },
+  { group: 'Dimensions & rifts', path: 'rifts.durationSeconds', label: 'Rift race length (s)', min: 10, max: 90, step: 1 },
+  { group: 'Dimensions & rifts', path: 'rifts.buffSeconds', label: 'Rift buff length (s)', min: 5, max: 90, step: 1 },
+  { group: 'Dimensions & rifts', path: 'rifts.goalScale', label: 'Rift goal difficulty', min: 0.2, max: 2, step: 0.05 },
+
   { group: 'Devil side NPCs', path: 'npc.enabled', label: 'Auto-spawner on', type: 'toggle' },
   { group: 'Devil side NPCs', path: 'npc.minA', label: 'Min units left side', min: 0, max: 12, step: 1 },
   { group: 'Devil side NPCs', path: 'npc.minB', label: 'Min units right side', min: 0, max: 12, step: 1 },
@@ -181,7 +203,9 @@ export const SCHEMA = [
   { group: 'Devil side NPCs', path: 'npc.perCheck', label: 'Spawn per check', min: 1, max: 6, step: 1 },
   { group: 'Devil side NPCs', path: 'npc.hp', label: 'NPC HP', min: 2, max: 100, step: 1 },
 
-  { group: 'Stream', path: 'guide.enabled', label: 'Transient gift guide', type: 'toggle' },
+  { group: 'Stream', path: 'guide.enabled', label: 'Gift guide', type: 'toggle' },
+  { group: 'Stream', path: 'guide.oracle', label: 'Guide stays on screen and rotates', type: 'toggle' },
+  { group: 'Stream', path: 'guide.cardSeconds', label: 'Rotating card time (s)', min: 2, max: 12, step: 0.5 },
   { group: 'Stream', path: 'guide.everySeconds', label: 'Guide every (s)', min: 6, max: 60, step: 1 },
   { group: 'Stream', path: 'guide.showSeconds', label: 'Guide visible (s)', min: 2, max: 10, step: 1 },
   { group: 'Stream', path: 'audio.master', label: 'Volume', min: 0, max: 1, step: 0.05 },

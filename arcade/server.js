@@ -181,6 +181,12 @@ function handleOwnerCommand(evt) {
     case 'reset':
       stage({ type: 'resetRound' });
       break;
+    case 'rift':
+      stage({ type: 'openRift', kind: ['like', 'gift', 'chat', 'coin'].includes(rest[0]) ? rest[0] : 'like' });
+      break;
+    case 'ascend':
+      stage({ type: 'ascend', delta: Number(rest[0]) || 1 });
+      break;
     case 'theme':
       if (rest[0]) weights.patch('theme', rest[0]);
       break;

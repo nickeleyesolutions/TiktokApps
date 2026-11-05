@@ -29,6 +29,7 @@ import { HUD } from './hud.js';
 import { buildPanel } from './panel.js';
 import { setServerMode } from './sprites.js';
 import { TEXT } from './textcache.js';
+import { HyperField, HyperCube, axisColors } from './hyper.js';
 
 const params = new URLSearchParams(location.search);
 const serverMode = typeof window.io === 'function' && !params.has('demo');
@@ -66,6 +67,11 @@ const music = new Music(sfx);
 const fx = new FX();
 const proj = new Projectiles();
 const backdrop = new Backdrop();
+const field = new HyperField(270, 480);
+const skyCube = new HyperCube(4);
+let fieldCanvas = null;
+let fieldFrame = 0;
+let beat = 0;
 const hud = new HUD();
 const env = {
   weights: () => weights,
@@ -255,6 +261,30 @@ let fps = 0;
 let postWasOn = null;
 let musicT = 0;
 
+// Dimension layer: shader field + floating hypercube, between backdrop and battle.
+function drawHyper() {
+  const dim = battle.asc.shown;
+  const hw = weights.hyper;
+  if (dim > 1.02 && hw.intensity > 0 && field.ok) {
+    // the field animates slowly, so 30 Hz is plenty (halves its GPU cost)
+    if ((fieldFrame++ & 1) === 0 || !fieldCanvas) {
+      fieldCanvas = field.render({ time, dim, energy: Math.min(1, battle.asc.energy / 10000), split: battle.territoryX / W, beat, a: theme.A.c1, b: theme.B.c1 });
+    }
+    if (fieldCanvas) {
+      wctx.save();
+      wctx.globalCompositeOperation = 'lighter';
+      wctx.globalAlpha = Math.min(1, dim - 1) * hw.intensity * (dim > 4 ? 1 - (dim - 4) * 0.25 : 1);
+      wctx.drawImage(fieldCanvas, 0, 0, W, H);
+      wctx.restore();
+    }
+  }
+  if (hw.cubes && dim > 2.3) {
+    skyCube.setDim(dim > 4.5 ? 5 : 4);
+    skyCube.project(time, W / 2, 352, 58 + (dim - 3) * 12 + beat * 4, 1 + (dim - 3) * 0.25);
+    skyCube.draw(wctx, axisColors(theme.A, theme.B), Math.min(1, dim - 2.3) * 0.75, 2);
+  }
+}
+
 function postParams() {
   const p = weights.post;
   const A = battle.teams.A;
@@ -277,10 +307,12 @@ function postParams() {
   }
   return {
     time,
-    bloom: p.bloom,
+    bloom: p.bloom * (1 + beat * 0.18 * Math.min(1, (battle.asc.shown - 1) / 2) + (battle.asc.shown - 1) * 0.03),
     scanlines: p.scanlines,
     scanlinePitch: p.scanlinePitch * S,
-    aberration: p.aberration * (1 + battle.aberr * 2),
+    aberration: p.aberration * (1 + battle.aberr * 2 + (battle.asc.shown - 1) * 0.12),
+    warp: battle.asc.shift,
+    prism: Math.max(0, battle.asc.shown - 2) / 3 * weights.hyper.prism,
     vignette: p.vignette,
     curvature: p.curvature,
     pixelate: p.pixelate > 0 ? Math.max(2, p.pixelate * S) : 0,
@@ -312,7 +344,7 @@ function frame(now) {
     const A = battle.teams.A;
     const B = battle.teams.B;
     const level = battle.phase === 'victory' ? -1 : A.gate.active || B.gate.active ? 2 : A.staggerTime > 0 || B.staggerTime > 0 || battle.happyHour > 0 || battle.boss ? 1 : 0;
-    music.setLevel(level, battle.cine ? 0.45 : 1);
+    music.setLevel(level, battle.cine ? 0.45 : 1, battle.asc.level);
   }
   let t0 = performance.now();
   battle.update(dt);
@@ -323,6 +355,8 @@ function frame(now) {
   wctx.globalAlpha = 1;
   wctx.globalCompositeOperation = 'source-over';
   backdrop.draw(wctx, time, dt, battle, weights, theme, S);
+  beat = music.pulse();
+  drawHyper();
   t0 = performance.now();
   mark('backdrop', t0 - t1);
   wctx.save();
@@ -393,7 +427,7 @@ async function boot() {
     // Offline demo: start with a small crowd so the arena is alive.
     mock.join('A', 6);
     mock.join('B', 4);
-    mock.chaos(params.get('chaos') || 'low');
+    mock.chaos(params.get('chaos') || 'medium');
   }
   last = performance.now();
   requestAnimationFrame(frame);

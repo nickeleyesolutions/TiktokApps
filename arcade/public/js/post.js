@@ -18,7 +18,7 @@ const FS = `#version 300 es
 precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uRes;
-uniform float uTime, uBloom, uScan, uPitch, uAberr, uVig, uCurve, uPixel, uGlitch, uFlash, uTintAmt, uSat;
+uniform float uTime, uBloom, uScan, uPitch, uAberr, uVig, uCurve, uPixel, uGlitch, uFlash, uTintAmt, uSat, uWarp, uPrism;
 uniform vec3 uTint;
 in vec2 vUv;
 out vec4 outColor;
@@ -36,6 +36,12 @@ void main() {
   vec2 uv = vUv;
   if (uCurve > 0.0) uv = curve(uv);
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { outColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  if (uWarp > 0.0) {
+    // dimension shift: a radial fold rippling out from the rift
+    vec2 d = uv - vec2(0.5, 0.53);
+    float r = length(d);
+    uv += d / max(r, 1e-4) * sin(r * 42.0 - uTime * 16.0) * 0.014 * uWarp * smoothstep(0.95, 0.0, r);
+  }
   if (uPixel > 1.0) uv = (floor(uv * uRes / uPixel) + 0.5) * uPixel / uRes;
   if (uGlitch > 0.0) {
     float band = floor(uv.y * 48.0);
@@ -57,6 +63,8 @@ void main() {
 
   float l = dot(col, vec3(0.299, 0.587, 0.114));
   col = mix(vec3(l), col, uSat);
+  // higher dimensions: bright areas pick up a thin-film style prismatic sheen
+  if (uPrism > 0.0) col += (0.5 + 0.5 * cos(6.28318 * (l * 1.6 + uTime * 0.07 + vec3(0.0, 0.33, 0.67)))) * smoothstep(0.55, 1.2, l) * uPrism * 0.12;
   col = mix(col, col * uTint * 1.5, uTintAmt);
 
   float s = 0.5 + 0.5 * cos(gl_FragCoord.y * 6.28318 / uPitch);
@@ -107,7 +115,7 @@ export class PostFX {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.u = {};
-    for (const n of ['uTex', 'uRes', 'uTime', 'uBloom', 'uScan', 'uPitch', 'uAberr', 'uVig', 'uCurve', 'uPixel', 'uGlitch', 'uFlash', 'uTintAmt', 'uTint', 'uSat']) {
+    for (const n of ['uTex', 'uRes', 'uTime', 'uBloom', 'uScan', 'uPitch', 'uAberr', 'uVig', 'uCurve', 'uPixel', 'uGlitch', 'uFlash', 'uTintAmt', 'uTint', 'uSat', 'uWarp', 'uPrism']) {
       this.u[n] = gl.getUniformLocation(this.prog, n);
     }
     this.ok = true;
@@ -148,6 +156,8 @@ export class PostFX {
     gl.uniform1f(u.uTintAmt, p.tintAmt);
     gl.uniform3f(u.uTint, p.tint[0], p.tint[1], p.tint[2]);
     gl.uniform1f(u.uSat, p.saturation);
+    gl.uniform1f(u.uWarp, p.warp || 0);
+    gl.uniform1f(u.uPrism, p.prism || 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return true;
   }

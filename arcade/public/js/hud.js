@@ -9,7 +9,22 @@
 //   900+     mostly covered by TikTok chat + buttons on phones: decoration only
 import { W, H, TAU, clamp, rgba, fmt, roundRectPath, easeOutBack, cleanName } from './util.js';
 import { avatarImage, pixelAvatar, unitSprite } from './sprites.js';
-import { UNIT_R, ELITE_R, commanderPos } from './combat.js';
+import { UNIT_R, ELITE_R, commanderPos, DIMENSIONS } from './combat.js';
+
+// Places the rotating guide card can sit. All avoid the TikTok header, the
+// lower-left chat zone and the right-hand buttons (approximate, see drawSafeZones).
+const ORACLE_SLOTS = [
+  { x: 360, y: 324, w: 560 },
+  { x: 546, y: 930, w: 300 },
+  { x: 360, y: 846, w: 272 },
+];
+
+// thin-film style hue sweep used for holographic edges
+function holo(ctx, x0, x1, time, a = 1) {
+  const g = ctx.createLinearGradient(x0, 0, x1, 0);
+  for (let i = 0; i <= 4; i++) g.addColorStop(i / 4, `hsla(${(time * 70 + i * 80) % 360},100%,68%,${a})`);
+  return g;
+}
 import { TEXT } from './textcache.js';
 
 export const PIX = '"Press Start 2P", monospace';
@@ -77,6 +92,7 @@ export class HUD {
     this.hallScroll = 0;
     this.guidePage = 0;
     this.lastGuideCycle = -1;
+    this.or = { t: 0, card: null, n: 0, slot: 0, ctxTurn: 0 };
   }
 
   draw(ctx, b, o) {
@@ -92,7 +108,11 @@ export class HUD {
     b.fx.drawTexts(ctx, PIX);
     this.drawGates(ctx, b, w, time);
     this.drawTopPills(ctx, b, w, time);
-    this.drawFeedOrGuide(ctx, b, theme, w, time);
+    const riftShown = this.drawRift(ctx, b, theme, time);
+    const oracleTop = w.guide.enabled && w.guide.oracle ? this.drawOracle(ctx, b, w, time, dt, riftShown) : false;
+    if (!(w.guide.enabled && w.guide.oracle)) this.drawFeedOrGuide(ctx, b, theme, w, time);
+    else if (!riftShown && !oracleTop && !b.cine) this.drawFeed(ctx, b);
+    this.drawBuffs(ctx, b, time);
     this.drawBanners(ctx, b, time);
     if (b.cine) this.drawCine(ctx, b, theme, time);
     if (b.phase === 'victory' && !b.cine) this.drawVictory(ctx, b, theme, o.S, time);
@@ -150,8 +170,212 @@ export class HUD {
     ctx.lineWidth = 3;
     ctx.strokeStyle = `rgba(255,255,255,${0.6 + 0.3 * Math.sin(time * 3)})`;
     ctx.stroke();
-    txt(ctx, 'VS', cx, cy - 4, 14, '#ffffff', { outline: 0 });
-    txt(ctx, 'R' + b.round, cx, cy + 12, 8, '#ffd34a', { outline: 0 });
+    // dimension: roman numeral in the hex, progress to the next level as a ring
+    const lvl = b.asc.level;
+    const prog = b.ascProgress();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 32, 0, TAU);
+    ctx.stroke();
+    if (prog > 0) {
+      ctx.strokeStyle = holo(ctx, cx - 32, cx + 32, time);
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 32, -Math.PI / 2, -Math.PI / 2 + TAU * prog);
+      ctx.stroke();
+    }
+    txt(ctx, 'VS', cx, cy - 11, 8, 'rgba(255,255,255,0.75)', { outline: 0 });
+    txt(ctx, DIMENSIONS[lvl - 1].roman, cx, cy + 4, lvl >= 4 ? 15 : 16, lvl >= 3 ? '#e7b6ff' : '#ffffff', { orb: true, outline: 0 });
+    txt(ctx, 'R' + b.round, cx, cy + 16, 7, '#ffd34a', { outline: 0 });
+    if (lvl >= 2) txt(ctx, `D${DIMENSIONS[lvl - 1].roman} ${DIMENSIONS[lvl - 1].name}`, cx, 254, 8, '#e7b6ff', { outline: 3 });
+  }
+
+  // ---- rift countdown / race panel (top band). Returns true while visible.
+  drawRift(ctx, b, th, time) {
+    const r = b.rift;
+    if (r.phase === 'idle' || b.cine || b.phase !== 'battle') return false;
+    const type = r.type;
+    const y = 290;
+    const h = 80;
+    ctx.save();
+    roundRectPath(ctx, 36, y, W - 72, h, 10);
+    ctx.fillStyle = 'rgba(8,3,20,0.84)';
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = holo(ctx, 36, W - 36, time);
+    ctx.stroke();
+    if (r.phase === 'incoming') {
+      const n = Math.max(0, Math.ceil(r.t));
+      const pulse = 1 + 0.25 * Math.max(0, (r.t % 1) - 0.6) / 0.4;
+      txt(ctx, 'RIFT OPENING', 70, y + 18, 9, '#e7b6ff', { outline: 0, align: 'left' });
+      txt(ctx, type.title, 70, y + 42, 22, '#ffffff', { orb: true, outline: 0, align: 'left' });
+      txt(ctx, `FIRST TO ${fmt(r.goal)} ${type.unit}: ${type.rewardName}`, 70, y + 66, 9, '#ffd34a', { outline: 0, align: 'left' });
+      ctx.save();
+      ctx.translate(W - 92, y + h / 2);
+      ctx.scale(pulse, pulse);
+      txt(ctx, String(n), 0, 2, 40, '#d36bff', { orb: true, outline: 4, outlineColor: '#ffffff' });
+      ctx.restore();
+    } else if (r.phase === 'active') {
+      const secs = Math.max(0, Math.ceil(r.t));
+      txt(ctx, `RIFT: ${type.title}`, W / 2, y + 15, 12, '#ffffff', { outline: 0 });
+      txt(ctx, `0:${String(secs).padStart(2, '0')}`, W - 62, y + 15, 12, secs <= 5 ? '#ff2a4a' : '#e7b6ff', { outline: 0, live: true });
+      for (const k of ['A', 'B']) {
+        const right = k === 'B';
+        const bx = right ? 372 : 56;
+        const bw = 292;
+        const p = Math.min(1, r.prog[k] / r.goal);
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(bx, y + 30, bw, 14);
+        ctx.fillStyle = th[k].c1;
+        const fw = bw * p;
+        ctx.fillRect(right ? bx + bw - fw : bx, y + 30, fw, 14);
+        txt(ctx, `${fmt(Math.min(r.prog[k], r.goal))}/${fmt(r.goal)}`, right ? bx + bw - 6 : bx + 6, y + 38, 9, '#ffffff', { outline: 3, align: right ? 'right' : 'left', live: true });
+      }
+      txt(ctx, `FIRST TO ${fmt(r.goal)} ${type.unit} UNLOCKS ${type.rewardName}: ${type.rewardText}`, W / 2, y + 62, 9, '#ffd34a', { outline: 0 });
+    } else {
+      const won = r.winner;
+      txt(ctx, won ? `${type.rewardName} UNLOCKED` : 'RIFT COLLAPSED', W / 2, y + 32, 20, won ? th[won].c1 : '#9c98c8', { orb: true, outline: 0 });
+      txt(ctx, won ? `${th[won].name}  ${type.rewardText}  ${Math.ceil(b.w.rifts.buffSeconds)}s` : 'NEXT RIFT SOON', W / 2, y + 58, 10, '#ffffff', { outline: 0 });
+    }
+    ctx.restore();
+    return true;
+  }
+
+  // ---- rotating guide card: always on screen, moves between slots and flips
+  // between cards. Live game state (gate, limit, rift, underdog) jumps the queue.
+  oracleCards(b, w) {
+    const g = w.gifts;
+    const c = [];
+    const add = (give, unlock, color) => c.push({ give, unlock, color });
+    add(`TYPE ${w.chat.joinA[0].toUpperCase()} OR ${w.chat.joinB[0].toUpperCase()}`, 'JOIN A TEAM + RALLY', '#ffffff');
+    add('ANY 1+ COIN GIFT', 'SEEKER VOLLEY + BRAVERY', '#9ff6ff');
+    add(`${g.tier2}+ COINS`, 'SURGE: ELITE TURRET UNIT', '#6affb0');
+    add(`${g.tier3}+ COINS`, 'LIGHTNING STORM', '#ffd34a');
+    add(`${fmt(g.tier4)}+ COINS`, 'GRAND SUMMON', '#ff5fa8');
+    add(`${fmt(g.orbitalCoins)}+ COINS`, 'ORBITAL STRIKE', '#d36bff');
+    add(`${fmt(w.mana.likesPerCast)} LIKES`, 'METEOR SHOWER', '#ff9fd0');
+    add('SHARE THE LIVE', '10s SHIELD + BARRAGE', '#9ff6ff');
+    if (w.commanders.enabled) add('TOP 3 GIFTERS', 'COMMANDER TURRET + CROWN', '#ffd34a');
+    if (w.ascension.enabled && b.asc.level < 5) {
+      const need = w.ascension.thresholds[b.asc.level] - b.asc.energy;
+      const next = DIMENSIONS[b.asc.level];
+      add(`${fmt(Math.max(1, need))} MORE ENERGY`, `DIMENSION ${next.roman}: ${next.perk}`, '#e7b6ff');
+    }
+    return c;
+  }
+
+  oracleContext(b, w) {
+    const c = [];
+    for (const k of ['A', 'B']) {
+      const t = b.teams[k];
+      const name = b.col(k).name;
+      const enemyName = b.col(t.enemy).name;
+      if (t.gate.active) c.push({ give: `${fmt(b.coinsForTier(t.gate.tier))}+ FOR ${enemyName}`, unlock: `EXECUTE ${name}`, color: '#ff2a4a', hot: true });
+      if (t.limitReady > 0) c.push({ give: `${fmt(b.coinsForTier(w.limit.triggerTier))}+ FOR ${name}`, unlock: 'LIMIT BREAK', color: b.col(k).c1, hot: true });
+      if (b.underdogMul(k) > 1) c.push({ give: `GIFT ${name}`, unlock: `+${Math.round((w.underdog.mul - 1) * 100)}% UNDERDOG POWER`, color: '#7dff9a' });
+    }
+    const r = b.rift;
+    if (r.phase === 'active') c.push({ give: `${r.type.unit} FOR YOUR TEAM`, unlock: `${r.type.rewardName}: ${r.type.rewardText}`, color: '#d36bff', hot: true });
+    return c;
+  }
+
+  drawOracle(ctx, b, w, time, dt, riftShown) {
+    const o = this.or;
+    const dur = Math.max(2, w.guide.cardSeconds);
+    o.t += dt;
+    if (!o.card || o.t >= dur) {
+      o.t = 0;
+      o.n++;
+      const ctxCards = this.oracleContext(b, w);
+      if (ctxCards.length && o.n % 2 === 0) o.card = ctxCards[o.ctxTurn++ % ctxCards.length];
+      else {
+        const cards = this.oracleCards(b, w);
+        o.base = (o.base || 0) + 1;
+        o.card = cards[o.base % cards.length];
+      }
+      if (o.n % 2 === 0) o.slot = (o.slot + 1) % ORACLE_SLOTS.length;
+    }
+    let slot = o.slot;
+    if (slot === 0 && (riftShown || b.cine || b.phase !== 'battle')) slot = 1;
+    const s = ORACLE_SLOTS[slot];
+    // flip in / flip out
+    const flip = Math.min(o.t / 0.3, (dur - o.t) / 0.3, 1);
+    const sy = Math.max(0.02, Math.sin((Math.max(0, flip) * Math.PI) / 2));
+    const card = o.card;
+    const hW = 58;
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.scale(1, sy);
+    ctx.globalAlpha = Math.max(0, flip);
+    roundRectPath(ctx, -s.w / 2, -hW / 2, s.w, hW, 9);
+    ctx.fillStyle = 'rgba(6,3,18,0.8)';
+    ctx.fill();
+    ctx.lineWidth = card.hot ? 3 : 2;
+    ctx.strokeStyle = card.hot && Math.sin(time * 10) > 0 ? card.color : holo(ctx, -s.w / 2, s.w / 2, time);
+    ctx.stroke();
+    // gem
+    const gx = -s.w / 2 + 20;
+    ctx.fillStyle = card.color;
+    ctx.fillRect(gx - 3, -12, 6, 24);
+    ctx.fillRect(gx - 7, -5, 14, 10);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(gx - 1.5, -6, 3, 4);
+    const tx = -s.w / 2 + 38;
+    const maxW = s.w - 50;
+    txt(ctx, 'GIVE', tx, -12, 7, 'rgba(255,255,255,0.55)', { outline: 0, align: 'left' });
+    txt(ctx, fitText(ctx, card.give, maxW - 40, 13), tx + 34, -12, 13, '#ffffff', { outline: 0, align: 'left' });
+    txt(ctx, 'UNLOCK', tx, 12, 7, 'rgba(255,255,255,0.55)', { outline: 0, align: 'left' });
+    txt(ctx, fitText(ctx, card.unlock, maxW - 52, 11), tx + 46, 12, 11, card.color, { outline: 0, align: 'left' });
+    ctx.restore();
+    return slot === 0;
+  }
+
+  drawFeed(ctx, b) {
+    let y = 312;
+    for (let i = b.feed.length - 1; i >= Math.max(0, b.feed.length - 3); i--) {
+      const f = b.feed[i];
+      const a = clamp(1 - (f.t - 3.5) / 1, 0, 1);
+      if (a <= 0) continue;
+      ctx.globalAlpha = a;
+      const s = fitText(ctx, f.text, 430, f.tier >= 3 ? 11 : 9);
+      const tw = textWidth(ctx, s, `${f.tier >= 3 ? 11 : 9}px ${PIX}`) + 16;
+      roundRectPath(ctx, W / 2 - tw / 2, y - 10, tw, 20, 6);
+      ctx.fillStyle = 'rgba(6,4,16,0.7)';
+      ctx.fill();
+      txt(ctx, s, W / 2, y + 1, f.tier >= 3 ? 11 : 9, f.color, { outline: 0 });
+      ctx.globalAlpha = 1;
+      y += 22;
+    }
+  }
+
+  // ---- rift buffs with time left, under each team's stack row
+  drawBuffs(ctx, b, time) {
+    const defs = [
+      ['hyper', 'HYPERDRIVE', '#7df9ff'],
+      ['prism', 'PRISM', '#e7b6ff'],
+      ['phase', 'PHASE x1.5', '#ff5fa8'],
+    ];
+    for (const k of ['A', 'B']) {
+      const t = b.teams[k];
+      const right = k === 'B';
+      let x = right ? W - 20 : 20;
+      for (const [key, label, color] of defs) {
+        const secs = t.buffs[key];
+        if (!(secs > 0)) continue;
+        const s = `${label} ${Math.ceil(secs)}s`;
+        const bw = textWidth(ctx, s, `9px ${PIX}`) + 14;
+        const bx = right ? x - bw : x;
+        roundRectPath(ctx, bx, 266, bw, 16, 8);
+        ctx.fillStyle = 'rgba(8,3,20,0.85)';
+        ctx.fill();
+        ctx.strokeStyle = secs < 5 && Math.sin(time * 12) > 0 ? '#ffffff' : color;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        txt(ctx, s, bx + bw / 2, 274.5, 9, color, { outline: 0, live: true });
+        x = right ? bx - 6 : bx + bw + 6;
+      }
+    }
   }
 
   star(ctx, x, y, color) {
@@ -400,7 +624,7 @@ export class HUD {
       const a = clamp((bn.dur - bn.t) / 0.35, 0, 1);
       if (a <= 0) continue;
       const cx = bn.anchor === 'A' ? 190 : bn.anchor === 'B' ? W - 190 : W / 2;
-      const cy = (bn.anchor === 'C' ? 650 : 378) - p * 10;
+      const cy = (bn.anchor === 'C' ? 650 : 404) - p * 10;
       const size = bn.small ? 26 : bn.anchor === 'C' ? 50 : 32;
       ctx.save();
       ctx.globalAlpha = a;
