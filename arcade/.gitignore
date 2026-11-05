@@ -1,0 +1,7 @@
+node_modules/
+config/weights.json
+data/
+recordings/*.jsonl
+dist/
+public/assets/*
+!public/assets/README.md
