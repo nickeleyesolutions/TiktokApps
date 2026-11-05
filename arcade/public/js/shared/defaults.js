@@ -21,6 +21,7 @@ export const DEFAULT_WEIGHTS = {
     // 720 = 720x1280, 1080 = 1080x1920, 1440 = 1440x2560 (supersample), 2160 = 4K portrait.
     resolution: 'auto',
     fps: 60,
+    autoQuality: true, // step effects/resolution down if the frame rate drops, back up when it recovers
   },
   theme: 'azure-inferno',
   teamNames: { A: '', B: '' }, // optional overrides for the theme's names
@@ -77,14 +78,20 @@ export const DEFAULT_WEIGHTS = {
     happyHourMul: 2,
     happyHourSeconds: 60,
     eliteSeconds: 30,
+    orbitalCoins: 5000, // tier-4 gifts at or above this play the Orbital Strike instead of the Leviathan
     overrides: {}, // e.g. { "Rose": 1, "Galaxy": 4 } forces a gift name into a tier
   },
+  commanders: { enabled: true, fireEvery: 2.6, damage: 2.5 }, // top 3 gifters per team get turrets
+  underdog: { enabled: true, gapPct: 30, mul: 1.25 }, // gifts to a team this far behind hit harder
+  bounty: { enabled: true, everySeconds: 45, limitReward: 30, braveryReward: 10 },
+  firstGift: { enabled: true, mul: 1.5 }, // a viewer's first gift of the session
+  subs: { hpMul: 2, atbMul: 1.1 }, // subscriber / fan club unit perks
   npc: { enabled: true, minA: 3, minB: 6, checkSeconds: 3, perCheck: 2, hp: 14, damage: 4 },
   chat: { joinA: ['a', '1', 'left'], joinB: ['b', '2', 'right'], allowSwitch: false, rallyCooldown: 2 },
   boss: { hp: 1800, seconds: 60, fireEvery: 2.2 },
   guide: { enabled: true, everySeconds: 12, showSeconds: 4 },
   round: { intermissionSeconds: 8 },
-  audio: { master: 0.6, tts: true, ttsMinGapSeconds: 3 },
+  audio: { master: 0.6, tts: true, ttsMinGapSeconds: 3, music: true, musicVolume: 0.35 },
   hud: { safeZones: false, feed: true, damageNumbers: true, names: true },
   owners: { usernames: [], allowModerators: true, trustAnchor: true, prefix: '!' },
   dev: { autoHotReload: false },
@@ -92,6 +99,7 @@ export const DEFAULT_WEIGHTS = {
 
 // Slider/toggle schema for the director. type: range | toggle | select
 export const SCHEMA = [
+  { group: 'Look', path: 'render.autoQuality', label: 'Auto quality (protect frame rate)', type: 'toggle' },
   { group: 'Look', path: 'post.enabled', label: 'Post FX (CRT/bloom)', type: 'toggle' },
   { group: 'Look', path: 'post.bloom', label: 'Bloom', min: 0, max: 1.5, step: 0.05 },
   { group: 'Look', path: 'post.scanlines', label: 'Scanlines', min: 0, max: 0.6, step: 0.02 },
@@ -152,6 +160,20 @@ export const SCHEMA = [
   { group: 'Execution gate', path: 'execution.maxSecondWinds', label: 'Max second winds', min: 0, max: 6, step: 1 },
   { group: 'Execution gate', path: 'execution.reviveHpPct', label: 'Defender revive %', min: 10, max: 80, step: 1 },
 
+  { group: 'Gifts', path: 'gifts.orbitalCoins', label: 'Orbital Strike at (coins)', min: 1000, max: 30000, step: 500 },
+  { group: 'Gifts', path: 'firstGift.enabled', label: 'First gift bonus', type: 'toggle' },
+  { group: 'Gifts', path: 'firstGift.mul', label: 'First gift multiplier', min: 1, max: 3, step: 0.1 },
+
+  { group: 'Rivalry', path: 'commanders.enabled', label: 'Top-3 gifter commanders', type: 'toggle' },
+  { group: 'Rivalry', path: 'commanders.fireEvery', label: 'Commander fire every (s)', min: 0.5, max: 8, step: 0.1 },
+  { group: 'Rivalry', path: 'commanders.damage', label: 'Commander damage x', min: 0.5, max: 10, step: 0.5 },
+  { group: 'Rivalry', path: 'underdog.enabled', label: 'Underdog bonus', type: 'toggle' },
+  { group: 'Rivalry', path: 'underdog.gapPct', label: 'Underdog at HP gap %', min: 5, max: 80, step: 1 },
+  { group: 'Rivalry', path: 'underdog.mul', label: 'Underdog gift multiplier', min: 1, max: 3, step: 0.05 },
+  { group: 'Rivalry', path: 'bounty.enabled', label: 'Bounties on aces', type: 'toggle' },
+  { group: 'Rivalry', path: 'bounty.everySeconds', label: 'New bounty every (s)', min: 10, max: 180, step: 5 },
+  { group: 'Rivalry', path: 'subs.hpMul', label: 'Subscriber unit HP x', min: 1, max: 4, step: 0.25 },
+
   { group: 'Devil side NPCs', path: 'npc.enabled', label: 'Auto-spawner on', type: 'toggle' },
   { group: 'Devil side NPCs', path: 'npc.minA', label: 'Min units left side', min: 0, max: 12, step: 1 },
   { group: 'Devil side NPCs', path: 'npc.minB', label: 'Min units right side', min: 0, max: 12, step: 1 },
@@ -164,6 +186,8 @@ export const SCHEMA = [
   { group: 'Stream', path: 'guide.showSeconds', label: 'Guide visible (s)', min: 2, max: 10, step: 1 },
   { group: 'Stream', path: 'audio.master', label: 'Volume', min: 0, max: 1, step: 0.05 },
   { group: 'Stream', path: 'audio.tts', label: 'TTS announcer', type: 'toggle' },
+  { group: 'Stream', path: 'audio.music', label: 'Chiptune music', type: 'toggle' },
+  { group: 'Stream', path: 'audio.musicVolume', label: 'Music volume', min: 0, max: 1, step: 0.05 },
   { group: 'Stream', path: 'round.intermissionSeconds', label: 'Victory screen (s)', min: 3, max: 30, step: 1 },
   { group: 'Stream', path: 'dev.autoHotReload', label: 'Auto hot-reload on code edit', type: 'toggle' },
 ];

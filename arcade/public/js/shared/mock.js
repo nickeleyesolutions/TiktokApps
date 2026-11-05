@@ -69,10 +69,11 @@ export class MockDriver {
     return v;
   }
 
-  join(team, n = 1) {
+  join(team, n = 1, opt = {}) {
     for (let i = 0; i < n; i++) {
       const v = this.mkViewer(team);
-      this.later(i * 70, () => this.emitRaw('chat', { user: this.rawUser(v), content: team === 'A' ? 'a' : 'b', userIdentity: {} }));
+      const ident = opt.sub ? { isSubscriberOfAnchor: true } : {};
+      this.later(i * 70, () => this.emitRaw('chat', { user: this.rawUser(v), content: team === 'A' ? 'a' : 'b', userIdentity: ident }));
     }
   }
 

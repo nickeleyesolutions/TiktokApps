@@ -2,6 +2,20 @@
 // and floating damage numbers. Particles are drawn as squares, not circles,
 // for the arcade look; the post-processing bloom makes them glow.
 import { TAU, rand } from './util.js';
+import { TEXT } from './textcache.js';
+
+// Colors get small integer ids so draw-time bucketing needs no string work.
+const COLOR_ID = new Map();
+const COLORS = [];
+function colorId(c) {
+  let id = COLOR_ID.get(c);
+  if (id === undefined) {
+    id = COLORS.length;
+    COLORS.push(c);
+    COLOR_ID.set(c, id);
+  }
+  return id;
+}
 
 const SPARK = 0;
 const SMOKE = 1;
@@ -28,7 +42,10 @@ export class FX {
   }
 
   particle(x, y, vx, vy, life, size, color, kind = SPARK, drag = 4, grav = 0) {
-    if (this.p.length >= this.max) return;
+    const n = this.p.length;
+    if (n >= this.max) return;
+    // level of detail: past 60% of the cap, keep every other spark
+    if (n > this.max * 0.6 && kind === SPARK && (this.lod = !this.lod)) return;
     const o = this.free.pop() || {};
     o.x = x;
     o.y = y;
@@ -38,6 +55,7 @@ export class FX {
     o.max = life;
     o.size = size;
     o.color = color;
+    o.cid = colorId(color);
     o.kind = kind;
     o.drag = drag;
     o.grav = grav;
@@ -144,20 +162,34 @@ export class FX {
 
   drawWorld(ctx) {
     ctx.save();
-    // smoke first, normal blending
+    // Batch: one Path2D per (color, alpha step) so thousands of particles cost
+    // a few dozen fill calls instead of thousands of fillRect + state changes.
+    const smoke = [null, null, null, null];
+    const buckets = [];
     for (const o of this.p) {
-      if (o.kind !== SMOKE) continue;
-      ctx.globalAlpha = 0.35 * (o.life / o.max);
-      ctx.fillStyle = o.color;
-      ctx.fillRect(o.x - o.size / 2, o.y - o.size / 2, o.size, o.size);
+      const s = o.size;
+      if (o.kind === SMOKE) {
+        const b = Math.min(3, ((o.life / o.max) * 4) | 0);
+        (smoke[b] || (smoke[b] = new Path2D())).rect(o.x - s / 2, o.y - s / 2, s, s);
+        continue;
+      }
+      const step = Math.max(1, Math.min(4, Math.ceil(Math.min(1, (o.life / o.max) * 1.4) * 4)));
+      const k = o.cid * 4 + step - 1;
+      (buckets[k] || (buckets[k] = new Path2D())).rect(o.x - s / 2, o.y - s / 2, s, s);
+    }
+    ctx.fillStyle = '#3a3550';
+    for (let b = 0; b < 4; b++) {
+      if (!smoke[b]) continue;
+      ctx.globalAlpha = 0.35 * ((b + 0.5) / 4);
+      ctx.fill(smoke[b]);
     }
     ctx.globalCompositeOperation = 'lighter';
-    for (const o of this.p) {
-      if (o.kind === SMOKE) continue;
-      ctx.globalAlpha = Math.min(1, (o.life / o.max) * 1.4);
-      ctx.fillStyle = o.color;
-      const s = o.size;
-      ctx.fillRect(o.x - s / 2, o.y - s / 2, s, s);
+    for (let k = 0; k < buckets.length; k++) {
+      const path = buckets[k];
+      if (!path) continue;
+      ctx.globalAlpha = ((k % 4) + 1) / 4;
+      ctx.fillStyle = COLORS[(k / 4) | 0];
+      ctx.fill(path);
     }
     for (const r of this.rings) {
       const t = 1 - r.life / r.max;
@@ -202,19 +234,11 @@ export class FX {
 
   drawTexts(ctx, font) {
     ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
     for (const t of this.texts) {
       const a = Math.min(1, (t.life / t.max) * 2);
       const pop = t.crit ? 1 + Math.max(0, (t.life - t.max + 0.15) / 0.15) * 0.6 : 1;
       ctx.globalAlpha = a;
-      ctx.font = `${Math.round(t.size * pop)}px ${font}`;
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = '#05030c';
-      ctx.strokeText(t.str, t.x, t.y);
-      ctx.fillStyle = t.color;
-      ctx.fillText(t.str, t.x, t.y);
+      TEXT.draw(ctx, t.str, t.x, t.y, `${t.size}px ${font}`, t.size, t.color, 4, '#05030c', 'center', pop);
     }
     ctx.restore();
   }

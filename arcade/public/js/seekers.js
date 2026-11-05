@@ -171,13 +171,21 @@ export class Projectiles {
       ctx.stroke(p.bolt);
     }
     ctx.globalAlpha = 1;
+    const outer = new Map();
+    const inner = new Path2D();
     for (const o of heads) {
       const s = o.kind === 1 ? 4 * o.size : 5;
-      ctx.fillStyle = o.color;
-      ctx.fillRect(o.x - s, o.y - s, s * 2, s * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(o.x - s / 2, o.y - s / 2, s, s);
+      let p = outer.get(o.color);
+      if (!p) outer.set(o.color, (p = new Path2D()));
+      p.rect(o.x - s, o.y - s, s * 2, s * 2);
+      inner.rect(o.x - s / 2, o.y - s / 2, s, s);
     }
+    for (const [color, p] of outer) {
+      ctx.fillStyle = color;
+      ctx.fill(p);
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fill(inner);
     ctx.restore();
   }
 }

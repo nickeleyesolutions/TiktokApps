@@ -24,6 +24,20 @@ export const soft = (n) => n / (1 + n / 30);
 export const ELITE_R = 31;
 const CORE_POS = { A: { x: 92, y: 620 }, B: { x: W - 92, y: 620 } };
 const COLS = [196, 272];
+// Commander turrets sit in an arc above each core: rank 1 in the middle.
+const CMD_POS = [
+  { x: 92, y: 498 },
+  { x: 40, y: 528 },
+  { x: 144, y: 528 },
+];
+const CMD_RANK_MUL = [1.5, 1, 0.75];
+export function commanderPos(team, i) {
+  const p = CMD_POS[i];
+  return { x: team === 'A' ? p.x : W - p.x, y: p.y };
+}
+
+// Orbital Strike satellite (X = panel, W = hull, E = lens).
+const SATELLITE = ['XX.........XX', 'XXX.......XXX', 'XXXX.WWW.XXXX', 'XXXXWWWWWXXXX', 'XXXX.WEW.XXXX', 'XXX..WWW..XXX', '.....W.W.....', '....WW.WW....'];
 const INFO = { x: 0, y: 0, r: 0, alive: false };
 
 export function slotPos(team, i) {
@@ -94,6 +108,9 @@ export class Battle {
     this.guideT = 0;
     this.viewers = 0;
     this.teams = { A: this.makeTeam('A'), B: this.makeTeam('B') };
+    this.commanders = { A: [], B: [] };
+    this.cmdT = 0;
+    this.bountyT = 20;
   }
 
   get w() {
@@ -126,6 +143,7 @@ export class Battle {
       executing: false,
       barrageT: 1,
       wins: 0,
+      bounty: null,
     };
   }
 
@@ -198,8 +216,8 @@ export class Battle {
       npc,
       team: key,
       name: npc ? 'DRONE-' + String(this.npcSeq % 100).padStart(2, '0') : rec.name,
-      hp: npc ? w.npc.hp : w.combat.unitHp,
-      max: npc ? w.npc.hp : w.combat.unitHp,
+      hp: npc ? w.npc.hp : w.combat.unitHp * (rec && rec.sub ? w.subs.hpMul : 1),
+      max: npc ? w.npc.hp : w.combat.unitHp * (rec && rec.sub ? w.subs.hpMul : 1),
       atb: rand(0, 0.6),
       elite: 0,
       shield: 0,
@@ -257,6 +275,11 @@ export class Battle {
   koUnit(u, src) {
     if (!u.alive) return;
     if (u.rec) u.rec.koAt = this.time;
+    const owner = this.teams[u.team];
+    if (owner.bounty === u) {
+      owner.bounty = null;
+      if (src && (src.team === 'A' || src.team === 'B') && src.team !== u.team) this.claimBounty(this.teams[src.team], u, src);
+    }
     this.sfx.play('ko');
     this.despawn(u, false);
     if (src && src.rec) src.rec.kills = (src.rec.kills || 0) + 1;
@@ -394,7 +417,7 @@ export class Battle {
     u.hp -= dmg;
     u.flash = 0.1;
     this.credit(src, dmg);
-    if (this.w.hud.damageNumbers && dmg >= 5 && src && src.kind !== 'bolt' && src.kind !== 'turret' && src.kind !== 'boss') this.fx.text(u.x, u.y - 30, String(Math.round(dmg)), '#ffffff', 12);
+    if (this.w.hud.damageNumbers && dmg >= 5 && src && src.kind !== 'bolt' && src.kind !== 'turret' && src.kind !== 'boss' && src.kind !== 'commander') this.fx.text(u.x, u.y - 30, String(Math.round(dmg)), '#ffffff', 12);
     if (u.hp <= 0) this.koUnit(u, src);
   }
 
@@ -551,7 +574,7 @@ export class Battle {
       this.finishRound(def, src);
       return;
     }
-    this.queueCine({ type: 'summon', dur: 6, climaxAt: 4, team: src.team, rec: src.rec || null, gift: src.gift || '', mode: 'execute', def: def.key });
+    this.queueCine({ type: 'summon', dur: 6, climaxAt: 4, team: src.team, rec: src.rec || null, gift: src.gift || '', mode: 'execute', def: def.key, variant: src.variant || 'leviathan' });
   }
 
   finishRound(def, src) {
@@ -575,7 +598,8 @@ export class Battle {
     this.meteors.length = 0;
     this.cineQueue.length = 0;
     const exec = src.rec || null;
-    this.victory = { winner: winner.key, exec, mvp: this.topDamage(winner.key), gift: src.gift || '', t: w.round.intermissionSeconds, sprite: null };
+    const top = [...this.users.values()].filter((r) => r.coins > 0).sort((a, b) => b.coins - a.coins).slice(0, 3);
+    this.victory = { winner: winner.key, exec, mvp: this.topDamage(winner.key), top, gift: src.gift || '', t: w.round.intermissionSeconds, sprite: null };
     this.sfx.play('victory');
     this.voice.say(`${this.col(winner.key).name} wins!${exec ? ' Executioner, ' + speakable(exec.name) + '!' : ''}`, 3);
     if (exec && this.env.onHall) this.env.onHall({ name: exec.name, team: winner.key, round: this.round, gift: src.gift || '' });
@@ -603,6 +627,7 @@ export class Battle {
       t.stacks.haste = t.stacks.bravery = t.stacks.barrage = 0;
       t.gate = { active: false, t: 0, winds: 0, tier: w.execution.finisherTier, lastSec: 99 };
       t.executing = false;
+      t.bounty = null;
       for (const u of t.units.concat(t.reserve)) {
         if (u.npc) this.despawn(u, true, false);
         else {
@@ -782,8 +807,12 @@ export class Battle {
   summonClimax(c) {
     const def = this.teams[c.def];
     const color = this.col(c.team).c1;
-    const wp = this.whalePos(c);
-    this.beam = { x1: wp.x + wp.dir * 200, y1: wp.y - 10, x2: def.core.x, y2: def.core.y, t: 0.9, max: 0.9, color };
+    if (c.variant === 'orbital') {
+      this.beam = { x1: def.core.x, y1: -60, x2: def.core.x, y2: def.core.y, t: 1.1, max: 1.1, color, wide: 1.6 };
+    } else {
+      const wp = this.whalePos(c);
+      this.beam = { x1: wp.x + wp.dir * 200, y1: wp.y - 10, x2: def.core.x, y2: def.core.y, t: 0.9, max: 0.9, color };
+    }
     this.flash = 0.7;
     this.trauma = 1;
     this.aberr = 1.6;
@@ -813,7 +842,10 @@ export class Battle {
         c.climaxed = true;
         this.summonClimax(c);
       }
-      if (c.t > 0.6 && c.t < c.climaxAt) {
+      if (c.t > 0.6 && c.t < c.climaxAt && c.variant === 'orbital') {
+        this.trauma = Math.max(this.trauma, 0.12 + (c.t / c.climaxAt) * 0.2);
+        this.aberr = Math.max(this.aberr, (c.t / c.climaxAt) * 0.8);
+      } else if (c.t > 0.6 && c.t < c.climaxAt) {
         this.trauma = Math.max(this.trauma, 0.22);
         this.aberr = Math.max(this.aberr, (c.t / c.climaxAt) * 0.8);
         const wp = this.whalePos(c);
@@ -970,9 +1002,17 @@ export class Battle {
     const n = e.delta;
     rec.coins += coins * n;
     const tier = this.tierOf(e.gift);
-    const mul = this.happyHour > 0 ? w.gifts.happyHourMul : 1;
+    let mul = this.happyHour > 0 ? w.gifts.happyHourMul : 1;
+    const under = this.underdogMul(key);
+    mul *= under;
+    if (w.firstGift.enabled && !rec.gifted) {
+      mul *= w.firstGift.mul;
+      this.banner('FIRST GIFT', `${cleanName(rec.name, 14).toUpperCase()} +${Math.round((w.firstGift.mul - 1) * 100)}%`, '#7dff9a', { side: key, small: true });
+    }
+    rec.gifted = true;
     const power = n * w.gifts.powerScale * Math.pow(coins, w.gifts.exponent) * mul;
-    const src = { team: key, rec, kind: 'gift', tier, gift: e.gift.name, finisher: tier >= e2.gate.tier };
+    const variant = coins >= w.gifts.orbitalCoins ? 'orbital' : 'leviathan';
+    const src = { team: key, rec, kind: 'gift', tier, gift: e.gift.name, coins, variant, finisher: tier >= e2.gate.tier };
     this.pushFeed(`${rec.name} > ${e.gift.name.toUpperCase()} x${n}`, this.col(key).c1, tier);
     this.sfx.play('coin');
     const unit = rec.unit && rec.unit.alive && rec.unit.slot >= 0 ? rec.unit : null;
@@ -1007,7 +1047,7 @@ export class Battle {
     } else if (tier === 3) {
       this.storm(t, power, src);
     } else {
-      this.queueCine({ type: 'summon', dur: 6, climaxAt: 4, team: key, rec, gift: e.gift.name, mode: 'damage', power, def: e2.key });
+      this.queueCine({ type: 'summon', dur: 6, climaxAt: 4, team: key, rec, gift: e.gift.name, mode: 'damage', power, def: e2.key, variant });
     }
 
     if (e.gift.streakable) {
@@ -1041,6 +1081,9 @@ export class Battle {
         break;
       case 'heal':
         if (t) t.core.hp = t.core.max;
+        break;
+      case 'setHp':
+        if (t && this.phase === 'battle' && !t.gate.active) t.core.hp = Math.max(t.core.max * (w.execution.gatePct / 100 + 0.01), (t.core.max * clamp(Number(c.pct) || 50, 1, 100)) / 100);
         break;
       case 'meteor':
         if (t && this.phase === 'battle') this.castMeteor(t);
@@ -1101,6 +1144,8 @@ export class Battle {
     for (const k of ['A', 'B']) this.updateTeam(this.teams[k], dt);
     if (this.boss) this.updateBoss(dt);
     this.updateMeteors(dt);
+    this.updateCommanders(dt);
+    this.updateBounties(dt);
 
     if (w.npc.enabled && (this.npcTimer -= dt) <= 0) {
       this.npcTimer = w.npc.checkSeconds;
@@ -1117,7 +1162,7 @@ export class Battle {
     this.territory += (clamp(ra - rb, -1, 1) - this.territory) * damp(1.5, dt);
     this.territoryX = W / 2 + this.territory * 150;
 
-    this.proj.update(dt, this, this.fx, w.seekers.smoke);
+    this.proj.update(dt, this, this.fx, w.seekers.smoke && !(this.env.quality && this.env.quality() >= 1));
     this.fx.update(dt);
   }
 
@@ -1186,7 +1231,7 @@ export class Battle {
       }
     }
     if (this.cine) return; // turn bars pause during cinematics
-    const haste = 1 + soft(t.stacks.haste) * w.atb.hastePerStack + (u.elite > 0 ? 0.35 : 0);
+    const haste = (1 + soft(t.stacks.haste) * w.atb.hastePerStack + (u.elite > 0 ? 0.35 : 0)) * (u.rec && u.rec.sub ? w.subs.atbMul : 1);
     u.atb += (dt * haste) / Math.max(0.5, w.atb.baseSeconds);
     if (u.atb >= 1) {
       u.atb = 0;
@@ -1257,6 +1302,7 @@ export class Battle {
     const th = this.env.theme();
     for (const k of ['A', 'B']) this.drawCore(ctx, this.teams[k], th[k], time);
     if (this.boss) this.drawBoss(ctx, time);
+    for (const k of ['A', 'B']) this.drawCommanders(ctx, k, th[k], S, time);
     for (const k of ['A', 'B']) {
       const t = this.teams[k];
       for (const u of t.units) this.drawUnit(ctx, t, u, th[k], S, time);
@@ -1409,6 +1455,19 @@ export class Battle {
       ctx.stroke();
       ctx.restore();
     }
+    if (t.bounty === u) {
+      ctx.save();
+      ctx.strokeStyle = Math.sin(time * 10) > 0 ? '#ff2a4a' : '#ffd34a';
+      ctx.lineWidth = 3;
+      const R = r + 12;
+      const a0 = time * 2;
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.arc(x, y, R, a0 + (i * TAU) / 4, a0 + (i * TAU) / 4 + 0.7);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     const bw = 40;
     const bx = x - bw / 2;
     const by = y + r + 5;
@@ -1473,14 +1532,15 @@ export class Battle {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
+    const wide = b.wide || 1;
     ctx.strokeStyle = rgba(b.color, 0.6 * a);
-    ctx.lineWidth = 70 * a + wob;
+    ctx.lineWidth = (70 * a + wob) * wide;
     ctx.beginPath();
     ctx.moveTo(b.x1, b.y1);
     ctx.lineTo(b.x2, b.y2);
     ctx.stroke();
     ctx.strokeStyle = `rgba(255,255,255,${a})`;
-    ctx.lineWidth = 22 * a;
+    ctx.lineWidth = 22 * a * wide;
     ctx.stroke();
     ctx.restore();
   }
@@ -1518,6 +1578,8 @@ export class Battle {
       const size = (c.sprite.width / S) * sc;
       ctx.globalAlpha = a;
       ctx.drawImage(c.sprite, cx - size / 2, cy - size / 2, size, size);
+    } else if (c.type === 'summon' && c.variant === 'orbital') {
+      this.drawOrbital(ctx, c, col);
     } else if (c.type === 'summon') {
       const wp = this.whalePos(c);
       const P = 13;
@@ -1551,6 +1613,170 @@ export class Battle {
         ctx.fillStyle = rgba('#ffffff', 0.9);
         ctx.beginPath();
         ctx.arc(mx, wp.y, 8 + k * 30, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // ------------------------------------------------------------ rivalries
+  underdogMul(key) {
+    const u = this.w.underdog;
+    if (!u || !u.enabled) return 1;
+    const t = this.teams[key];
+    const e = this.teams[t.enemy];
+    const gap = (e.core.hp / e.core.max - t.core.hp / t.core.max) * 100;
+    return gap >= u.gapPct ? u.mul : 1;
+  }
+
+  // Top 3 session gifters per team become commander turrets. Recomputed once
+  // a second; taking the #1 seat from someone triggers a callout.
+  updateCommanders(dt) {
+    const w = this.w;
+    if (!w.commanders.enabled) {
+      this.commanders.A.length = this.commanders.B.length = 0;
+      return;
+    }
+    if ((this.cmdT -= dt) <= 0) {
+      this.cmdT = 1;
+      const ranked = { A: [], B: [] };
+      for (const r of this.users.values()) if (r.coins > 0 && (r.team === 'A' || r.team === 'B')) ranked[r.team].push(r);
+      for (const k of ['A', 'B']) {
+        const top = ranked[k].sort((a, b) => b.coins - a.coins).slice(0, 3);
+        const prev = this.commanders[k];
+        const prevTop = prev[0] && prev[0].rec;
+        this.commanders[k] = top.map((rec, i) => {
+          const old = prev.find((c) => c.rec === rec);
+          return { rec, i, fireT: old ? old.fireT : 1 + i * 0.4, sprite: old ? old.sprite : null, spriteKey: old ? old.spriteKey : '', pop: old ? old.pop : 1 };
+        });
+        const nowTop = top[0];
+        if (nowTop && prevTop && nowTop !== prevTop) {
+          this.banner('NEW COMMANDER', cleanName(nowTop.name, 14).toUpperCase(), '#ffd34a', { side: k });
+          this.voice.say(`${speakable(nowTop.name)} takes command of ${this.col(k).name}!`, 2);
+          this.sfx.play('ready');
+        }
+      }
+    }
+    if (this.cine) return;
+    for (const k of ['A', 'B']) {
+      const t = this.teams[k];
+      for (const c of this.commanders[k]) {
+        c.pop = Math.max(0, c.pop - dt * 3);
+        if ((c.fireT -= dt) > 0) continue;
+        c.fireT = w.commanders.fireEvery * (1 + c.i * 0.3);
+        const p = commanderPos(k, c.i);
+        this.volley(t, p.x, p.y, 2, w.seekers.damage * w.commanders.damage * CMD_RANK_MUL[c.i], { team: k, rec: c.rec, kind: 'commander' }, 0.1);
+        c.pop = 1;
+      }
+    }
+  }
+
+  // Every so often each team's best damage dealer becomes a bounty target.
+  updateBounties(dt) {
+    const w = this.w;
+    if (!w.bounty.enabled || (this.bountyT -= dt) > 0) return;
+    this.bountyT = w.bounty.everySeconds;
+    for (const k of ['A', 'B']) {
+      const t = this.teams[k];
+      if (t.bounty && t.bounty.alive) continue;
+      let ace = null;
+      for (const u of t.units) if (!u.npc && u.rec && u.rec.rd > 0 && (!ace || u.rec.rd > ace.rec.rd)) ace = u;
+      t.bounty = ace;
+      if (ace) {
+        ace.label = 4;
+        this.banner('BOUNTY', `${cleanName(ace.name, 14).toUpperCase()} IS MARKED`, '#ff2a4a', { side: k, small: true });
+      }
+    }
+  }
+
+  claimBounty(t, victim, src) {
+    const w = this.w;
+    this.addLimit(t, w.bounty.limitReward);
+    this.addStack(t, 'bravery', w.bounty.braveryReward);
+    this.fx.ring(victim.x, victim.y, '#ffd34a', 10, 120, 0.6, 6);
+    this.banner('BOUNTY CLAIMED', src.rec ? cleanName(src.rec.name, 14).toUpperCase() : this.col(t.key).name, '#ffd34a', { side: t.key });
+    this.voice.say(`Bounty claimed on ${speakable(victim.name)}!`, 1);
+    this.sfx.play('coin');
+  }
+
+  drawCommanders(ctx, k, col, S, time) {
+    for (const c of this.commanders[k]) {
+      const p = commanderPos(k, c.i);
+      const r = c.i === 0 ? 20 : 16;
+      const img = avatarImage(c.rec.avatar);
+      const key = S + '|' + r + '|' + (img ? 1 : 0) + '|' + col.c1;
+      if (c.spriteKey !== key) {
+        c.sprite = unitSprite({ r, S, img, pix: pixelAvatar(c.rec.id, col.c1, col.c2, false), ring: '#ffd34a', accent: col.c1, elite: true });
+        c.spriteKey = key;
+      }
+      const sc = 1 + c.pop * 0.15;
+      const size = (c.sprite.width / S) * sc;
+      const bob = Math.sin(time * 2 + c.i) * 3;
+      ctx.drawImage(c.sprite, p.x - size / 2, p.y - size / 2 + bob, size, size);
+      // pixel crown, bigger for rank 1
+      const cw = c.i === 0 ? 4 : 3;
+      const cy = p.y - r - 10 + bob;
+      ctx.fillStyle = c.i === 0 ? '#ffd34a' : c.i === 1 ? '#e6e6f0' : '#e09a5a';
+      ctx.fillRect(p.x - cw * 2.5, cy + cw, cw * 5, cw * 1.5);
+      ctx.fillRect(p.x - cw * 2.5, cy, cw, cw);
+      ctx.fillRect(p.x - cw / 2, cy - cw / 2, cw, cw);
+      ctx.fillRect(p.x + cw * 1.5, cy, cw, cw);
+    }
+  }
+
+  drawOrbital(ctx, c, col) {
+    const def = this.teams[c.def];
+    const tx = def.core.x;
+    const ty = def.core.y;
+    const pin = clamp(c.t / 1.0, 0, 1);
+    const sx = tx;
+    const sy = -80 + 330 * (1 - Math.pow(1 - pin, 3)) + Math.sin(c.t * 2) * 6; // settles below the HUD bars
+    const P = 9;
+    const ox = sx - (SATELLITE[0].length * P) / 2;
+    const oy = sy - (SATELLITE.length * P) / 2;
+    for (let j = 0; j < SATELLITE.length; j++) {
+      for (let i = 0; i < SATELLITE[j].length; i++) {
+        const ch = SATELLITE[j][i];
+        if (ch === '.') continue;
+        ctx.fillStyle = ch === 'X' ? col.c2 : ch === 'E' ? '#ffffff' : '#d8d6ff';
+        ctx.fillRect(ox + i * P, oy + j * P, P - 1, P - 1);
+      }
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (c.t > 0.6 && c.t < c.climaxAt) {
+      // targeting reticle closing on the enemy core
+      const k = clamp((c.t - 0.6) / (c.climaxAt - 0.6), 0, 1);
+      const R = 220 - 160 * k;
+      ctx.strokeStyle = rgba(col.c1, 0.5 + 0.5 * k);
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 4; i++) {
+        const a = c.t * (1.5 + k * 4) + (i * TAU) / 4;
+        ctx.beginPath();
+        ctx.arc(tx, ty, R, a, a + 0.9);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(tx - R - 20, ty);
+      ctx.lineTo(tx - R * 0.4, ty);
+      ctx.moveTo(tx + R * 0.4, ty);
+      ctx.lineTo(tx + R + 20, ty);
+      ctx.moveTo(tx, ty - R - 20);
+      ctx.lineTo(tx, ty - R * 0.4);
+      ctx.moveTo(tx, ty + R * 0.4);
+      ctx.lineTo(tx, ty + R + 20);
+      ctx.stroke();
+      // thin guide laser
+      ctx.strokeStyle = rgba(col.c1, 0.25 + 0.4 * k);
+      ctx.lineWidth = 1 + k * 3;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy + 30);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      if (c.t > 3.2) {
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath();
+        ctx.arc(sx, sy + 34, 6 + (c.t - 3.2) * 30, 0, TAU);
         ctx.fill();
       }
     }
@@ -1613,6 +1839,9 @@ export class Battle {
       gateTier: t.gate.tier,
       stacks: { ...t.stacks },
       wins: t.wins,
+      underdog: this.underdogMul(t.key) > 1,
+      commanders: this.commanders[t.key].map((c) => ({ name: c.rec.name, coins: c.rec.coins })),
+      bounty: t.bounty ? t.bounty.name : null,
     });
     return {
       round: this.round,

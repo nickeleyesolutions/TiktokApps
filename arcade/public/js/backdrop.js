@@ -58,7 +58,41 @@ export class Backdrop {
     return m.tagName === 'VIDEO' ? m.readyState >= 2 : m.complete && m.naturalWidth > 0;
   }
 
-  draw(ctx, t, dt, b, wts, theme) {
+  // The pixel skyline (dozens of rects + window loop) is rendered once into
+  // an offscreen canvas and redrawn only when scale, theme or the territory
+  // line moves enough to recolor the windows.
+  skyline(S, A, B, tx) {
+    const key = S + '|' + A.c1 + '|' + B.c1 + '|' + Math.round(tx / 6);
+    if (key === this.skyKey) return this.skyCanvas;
+    const top = HORIZON - 160;
+    const cv = this.skyCanvas || document.createElement('canvas');
+    cv.width = Math.ceil(W * S);
+    cv.height = Math.ceil(160 * S);
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(S, 0, 0, S, 0, -top * S);
+    ctx.clearRect(0, top, W, 160);
+    ctx.fillStyle = '#0d0820';
+    for (const s of this.sky2) ctx.fillRect(s.x, HORIZON - s.h - 10, s.w, s.h + 10);
+    for (const s of this.sky1) {
+      ctx.fillStyle = '#07040f';
+      ctx.fillRect(s.x, HORIZON - s.h, s.w - 2, s.h);
+      let bits = s.lit;
+      for (let wy = HORIZON - s.h + 8; wy < HORIZON - 6; wy += 10) {
+        for (let wx = s.x + 5; wx < s.x + s.w - 7; wx += 8) {
+          bits = (bits * 1103515245 + 12345) >>> 0;
+          if ((bits & 7) === 0) {
+            ctx.fillStyle = wx + 2 < tx ? rgba(A.c1, 0.55) : rgba(B.c1, 0.55);
+            ctx.fillRect(wx, wy, 3, 3);
+          }
+        }
+      }
+    }
+    this.skyCanvas = cv;
+    this.skyKey = key;
+    return cv;
+  }
+
+  draw(ctx, t, dt, b, wts, theme, S = 1) {
     const A = theme.A;
     const B = theme.B;
     const tx = b.territoryX;
@@ -89,16 +123,15 @@ export class Backdrop {
     // team tint split at the territory line
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    const tintA = ctx.createLinearGradient(0, 0, tx, 0);
-    tintA.addColorStop(0, rgba(A.c2, 0.16));
-    tintA.addColorStop(1, rgba(A.c1, 0.05));
-    ctx.fillStyle = tintA;
-    ctx.fillRect(0, 0, tx, H);
-    const tintB = ctx.createLinearGradient(tx, 0, W, 0);
-    tintB.addColorStop(0, rgba(B.c1, 0.05));
-    tintB.addColorStop(1, rgba(B.c2, 0.16));
-    ctx.fillStyle = tintB;
-    ctx.fillRect(tx, 0, W - tx, H);
+    // one full-screen pass for both team tints (hard split at the territory line)
+    const f = clamp(tx / W, 0.02, 0.98);
+    const tint = ctx.createLinearGradient(0, 0, W, 0);
+    tint.addColorStop(0, rgba(A.c2, 0.16));
+    tint.addColorStop(f - 0.001, rgba(A.c1, 0.05));
+    tint.addColorStop(f, rgba(B.c1, 0.05));
+    tint.addColorStop(1, rgba(B.c2, 0.16));
+    ctx.fillStyle = tint;
+    ctx.fillRect(0, 0, W, H);
     // stagger / gate pulses on a team's half
     for (const k of ['A', 'B']) {
       const team = b.teams[k];
@@ -152,26 +185,7 @@ export class Backdrop {
       }
       ctx.restore();
       // skyline
-      if (wts.backdrop.skyline) {
-        ctx.fillStyle = '#0d0820';
-        for (const s of this.sky2) ctx.fillRect(s.x, HORIZON - s.h - 10, s.w, s.h + 10);
-        ctx.fillStyle = '#07040f';
-        for (const s of this.sky1) {
-          ctx.fillRect(s.x, HORIZON - s.h, s.w - 2, s.h);
-          // lit windows
-          let bits = s.lit;
-          for (let wy = HORIZON - s.h + 8; wy < HORIZON - 6; wy += 10) {
-            for (let wx = s.x + 5; wx < s.x + s.w - 7; wx += 8) {
-              bits = (bits * 1103515245 + 12345) >>> 0;
-              if ((bits & 7) === 0) {
-                ctx.fillStyle = wx + 2 < tx ? rgba(A.c1, 0.55) : rgba(B.c1, 0.55);
-                ctx.fillRect(wx, wy, 3, 3);
-              }
-            }
-          }
-          ctx.fillStyle = '#07040f';
-        }
-      }
+      if (wts.backdrop.skyline) ctx.drawImage(this.skyline(S, A, B, tx), 0, HORIZON - 160, W, 160);
     }
 
     // perspective grid floor

@@ -19,7 +19,7 @@ import { DEFAULT_WEIGHTS, THEMES } from './shared/defaults.js';
 import { deepMerge, clone, setPath } from './shared/objpath.js';
 import { createNormalizer } from './shared/normalizer.js';
 import { MockDriver } from './shared/mock.js';
-import { Sfx, Voice } from './audio.js';
+import { Sfx, Voice, Music } from './audio.js';
 import { FX } from './fx.js';
 import { Projectiles } from './seekers.js';
 import { Backdrop } from './backdrop.js';
@@ -28,6 +28,7 @@ import { Battle } from './combat.js';
 import { HUD } from './hud.js';
 import { buildPanel } from './panel.js';
 import { setServerMode } from './sprites.js';
+import { TEXT } from './textcache.js';
 
 const params = new URLSearchParams(location.search);
 const serverMode = typeof window.io === 'function' && !params.has('demo');
@@ -61,6 +62,7 @@ const post = new PostFX(postCanvas);
 
 const sfx = new Sfx();
 const voice = new Voice();
+const music = new Music(sfx);
 const fx = new FX();
 const proj = new Projectiles();
 const backdrop = new Backdrop();
@@ -73,8 +75,37 @@ const env = {
   sfx,
   voice,
   onHall: null,
+  quality: () => quality.level,
 };
 const battle = new Battle(env);
+
+// Auto quality. Level 0 = full. 1 = fewer particles, no smoke. 2 = render
+// resolution down a step. 3 = 720 render. Steps down after 3 s under 85% of
+// the target frame rate, back up after 12 s above 97%.
+const quality = { level: 0, low: 0, high: 0 };
+function autoQuality(dt) {
+  if (!weights.render.autoQuality || document.hidden) {
+    if (quality.level && !weights.render.autoQuality) setQuality(0);
+    return;
+  }
+  const target = weights.render.fps || 60;
+  const inst = 1 / Math.max(1e-3, dt);
+  if (inst < target * 0.85) {
+    quality.low += dt;
+    quality.high = 0;
+  } else if (inst > target * 0.97) {
+    quality.high += dt;
+    quality.low = Math.max(0, quality.low - dt);
+  }
+  if (quality.low > 3 && quality.level < 3) setQuality(quality.level + 1);
+  else if (quality.high > 12 && quality.level > 0) setQuality(quality.level - 1);
+}
+function setQuality(level) {
+  quality.level = level;
+  quality.low = quality.high = 0;
+  fx.max = level >= 1 ? 1800 : 3500;
+  layout();
+}
 
 let S = 1;
 function layout() {
@@ -91,12 +122,14 @@ function layout() {
   const res = urlRes || weights.render.resolution;
   let pxW = res === 'auto' || !res ? Math.round(cssW * (window.devicePixelRatio || 1)) : Number(res);
   pxW = clamp(pxW || 720, 360, 2160);
+  if (quality.level >= 2) pxW = Math.min(pxW, quality.level >= 3 ? 720 : Math.max(720, Math.round(pxW * 0.67)));
   const pxH = Math.round((pxW * H) / W);
   if (world.width !== pxW || world.height !== pxH) {
     world.width = hudCanvas.width = pxW;
     world.height = hudCanvas.height = pxH;
   }
   S = pxW / W;
+  TEXT.setScale(S);
 }
 window.addEventListener('resize', layout);
 
@@ -107,6 +140,8 @@ function applyWeights(w) {
   voice.enabled = !!weights.audio.tts;
   voice.minGap = weights.audio.ttsMinGapSeconds * 1000;
   sfx.setVolume(weights.audio.master);
+  music.on = !!weights.audio.music;
+  music.vol = weights.audio.musicVolume;
   backdrop.setAsset(weights.backdrop.asset, serverMode);
   layout();
   if (panel) panel.refresh(weights);
@@ -140,6 +175,7 @@ if (serverMode) {
   socket = window.io({ query: { role: 'stage', key: params.get('key') || '' } });
   socket.on('weights', applyWeights);
   socket.on('evt', onEvent);
+  socket.on('evts', (list) => Array.isArray(list) && list.forEach(onEvent));
   socket.on('cmd', onCommand);
   socket.on('hall', (h) => (hall = Array.isArray(h) ? h : []));
   env.onHall = (entry) => socket.emit('hall:add', entry);
@@ -173,6 +209,7 @@ if (serverMode) {
       else if (m.kind === 'share') mock.share(team);
       else if (m.kind === 'follow') mock.follow(team);
       else if (m.kind === 'gift') mock.gift(m.gift, team, m.n || 1);
+      else if (m.kind === 'subjoin' && team) mock.join(team, m.n || 1, { sub: true });
     },
     cmd: onCommand,
     chaos: (lvl) => mock.chaos(lvl),
@@ -216,6 +253,7 @@ let frames = 0;
 let fpsT = 0;
 let fps = 0;
 let postWasOn = null;
+let musicT = 0;
 
 function postParams() {
   const p = weights.post;
@@ -268,19 +306,36 @@ function frame(now) {
     fpsT = 0;
   }
   time += dt;
+  autoQuality(dt);
+  if ((musicT -= dt) <= 0) {
+    musicT = 0.25;
+    const A = battle.teams.A;
+    const B = battle.teams.B;
+    const level = battle.phase === 'victory' ? -1 : A.gate.active || B.gate.active ? 2 : A.staggerTime > 0 || B.staggerTime > 0 || battle.happyHour > 0 || battle.boss ? 1 : 0;
+    music.setLevel(level, battle.cine ? 0.45 : 1);
+  }
+  let t0 = performance.now();
   battle.update(dt);
+  let t1 = performance.now();
+  mark('update', t1 - t0);
 
   wctx.setTransform(S, 0, 0, S, 0, 0);
   wctx.globalAlpha = 1;
   wctx.globalCompositeOperation = 'source-over';
-  backdrop.draw(wctx, time, dt, battle, weights, theme);
+  backdrop.draw(wctx, time, dt, battle, weights, theme, S);
+  t0 = performance.now();
+  mark('backdrop', t0 - t1);
   wctx.save();
   wctx.translate(battle.shakeX, battle.shakeY);
   battle.drawWorld(wctx, S, time);
   wctx.restore();
+  t1 = performance.now();
+  mark('world', t1 - t0);
 
   let postOn = weights.post.enabled && post.ok;
   if (postOn) postOn = post.render(world, postParams());
+  t0 = performance.now();
+  mark('post', t0 - t1);
   if (postOn !== postWasOn) {
     postWasOn = postOn;
     postCanvas.style.visibility = postOn ? 'visible' : 'hidden';
@@ -291,6 +346,23 @@ function frame(now) {
   hctx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
   hctx.setTransform(S, 0, 0, S, 0, 0);
   hud.draw(hctx, battle, { theme, w: weights, time, dt, hall, demo: !serverMode && !obsMode, S });
+  mark('hud', performance.now() - t0);
+}
+
+// Per-stage CPU cost (ms, exponential moving average). Shown in the director.
+const perf = { update: 0, backdrop: 0, world: 0, post: 0, hud: 0 };
+function mark(k, ms) {
+  perf[k] += (ms - perf[k]) * 0.05;
+}
+function perfSummary() {
+  const o = {};
+  let total = 0;
+  for (const k in perf) {
+    o[k] = Math.round(perf[k] * 100) / 100;
+    total += perf[k];
+  }
+  o.total = Math.round(total * 100) / 100;
+  return o;
 }
 
 async function boot() {
@@ -312,9 +384,10 @@ async function boot() {
     ]);
   }
   sfx.ensure();
+  music.start();
   if (serverMode) {
     setInterval(() => {
-      socket.emit('status', { ...battle.status(), fps: Math.round(fps), res: `${world.width}x${world.height}`, post: !!postWasOn, audio: sfx.ready });
+      socket.emit('status', { ...battle.status(), fps: Math.round(fps), res: `${world.width}x${world.height}`, post: !!postWasOn, audio: sfx.ready, perf: perfSummary(), quality: quality.level });
     }, 500);
   } else {
     // Offline demo: start with a small crowd so the arena is alive.
@@ -324,7 +397,7 @@ async function boot() {
   }
   last = performance.now();
   requestAnimationFrame(frame);
-  window.__arena = { battle, weights: () => weights, api, fps: () => fps };
+  window.__arena = { battle, weights: () => weights, api, fps: () => fps, perf: perfSummary, dbg: { hud, hctx, wctx, backdrop, fx, proj, S: () => S, theme: () => theme, hall: () => hall } };
 }
 
 boot();

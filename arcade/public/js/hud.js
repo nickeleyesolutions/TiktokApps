@@ -9,30 +9,58 @@
 //   900+     mostly covered by TikTok chat + buttons on phones: decoration only
 import { W, H, TAU, clamp, rgba, fmt, roundRectPath, easeOutBack, cleanName } from './util.js';
 import { avatarImage, pixelAvatar, unitSprite } from './sprites.js';
-import { UNIT_R, ELITE_R } from './combat.js';
+import { UNIT_R, ELITE_R, commanderPos } from './combat.js';
+import { TEXT } from './textcache.js';
 
 export const PIX = '"Press Start 2P", monospace';
 export const ORB = 'Orbitron, "Arial Black", Impact, sans-serif';
 
+// Text goes through the sprite cache unless opt.live (values that change
+// every frame, like HP numbers, are cheaper to draw directly).
 function txt(ctx, s, x, y, size, color, opt = {}) {
-  ctx.font = opt.orb ? `${opt.weight || 900} ${size}px ${ORB}` : `${size}px ${PIX}`;
+  const font = opt.orb ? `${opt.weight || 900} ${size}px ${ORB}` : `${size}px ${PIX}`;
+  const outline = opt.outline === 0 ? 0 : opt.outline || Math.max(3, size * 0.28);
+  const oc = opt.outlineColor || '#05030c';
+  if (!opt.live) return TEXT.draw(ctx, String(s), x, y, font, size, color, outline, oc, opt.align || 'center');
+  ctx.font = font;
   ctx.textAlign = opt.align || 'center';
   ctx.textBaseline = 'middle';
-  if (opt.outline !== 0) {
+  if (outline) {
     ctx.lineJoin = 'round';
-    ctx.lineWidth = opt.outline || Math.max(3, size * 0.28);
-    ctx.strokeStyle = opt.outlineColor || '#05030c';
+    ctx.lineWidth = outline;
+    ctx.strokeStyle = oc;
     ctx.strokeText(s, x, y);
   }
   ctx.fillStyle = color;
   ctx.fillText(s, x, y);
 }
 
+const fitMemo = new Map();
 function fitText(ctx, s, maxW, size, opt = {}) {
-  ctx.font = opt.orb ? `${opt.weight || 900} ${size}px ${ORB}` : `${size}px ${PIX}`;
+  const font = opt.orb ? `${opt.weight || 900} ${size}px ${ORB}` : `${size}px ${PIX}`;
+  const key = s + '|' + font + '|' + maxW;
+  const hit = fitMemo.get(key);
+  if (hit !== undefined) return hit;
+  ctx.font = font;
   let t = s;
   while (t.length > 3 && ctx.measureText(t).width > maxW) t = t.slice(0, -1);
-  return t === s ? s : t.slice(0, -1) + '.';
+  const out = t === s ? s : t.slice(0, -1) + '.';
+  fitMemo.set(key, out);
+  if (fitMemo.size > 800) fitMemo.delete(fitMemo.keys().next().value);
+  return out;
+}
+
+const widthMemo = new Map();
+function textWidth(ctx, s, font) {
+  const key = s + '|' + font;
+  let w = widthMemo.get(key);
+  if (w === undefined) {
+    ctx.font = font;
+    w = ctx.measureText(s).width;
+    widthMemo.set(key, w);
+    if (widthMemo.size > 400) widthMemo.delete(widthMemo.keys().next().value);
+  }
+  return w;
 }
 
 function gauge(ctx, x, y, w, h, ratio, fill, alignRight, bg = 'rgba(8,6,20,0.8)') {
@@ -60,6 +88,7 @@ export class HUD {
     this.drawBars(ctx, b, theme, w, time);
     this.drawStacks(ctx, b, theme);
     if (w.hud.names) this.drawNames(ctx, b, time);
+    this.drawCommanderLabels(ctx, b);
     b.fx.drawTexts(ctx, PIX);
     this.drawGates(ctx, b, w, time);
     this.drawTopPills(ctx, b, w, time);
@@ -83,17 +112,14 @@ export class HUD {
     let s;
     if (!hall || !hall.length) s = 'HALL OF FAME  *  LAND THE FINAL BLOW TO GET CROWNED  *  ';
     else s = 'HALL OF FAME  *  ' + hall.slice(0, 8).map((e) => `R${e.round} ${cleanName(e.name, 14).toUpperCase()}`).join('  *  ') + '  *  ';
-    ctx.font = `11px ${PIX}`;
-    const tw = ctx.measureText(s).width;
+    const font = `11px ${PIX}`;
+    const tw = textWidth(ctx, s, font);
     this.hallScroll = (this.hallScroll + dt * 50) % tw;
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, y, W, h);
     ctx.clip();
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ffd34a';
-    for (let x = -this.hallScroll; x < W; x += tw) ctx.fillText(s, x, y + h / 2 + 1);
+    for (let x = -this.hallScroll; x < W; x += tw) TEXT.draw(ctx, s, x, y + h / 2 + 1, font, 11, '#ffd34a', 0, '', 'left');
     ctx.restore();
   }
 
@@ -103,9 +129,8 @@ export class HUD {
     const B = th.B;
     txt(ctx, fitText(ctx, A.name, 250, 26, { orb: true }), 20, y, 26, A.c1, { orb: true, align: 'left' });
     txt(ctx, fitText(ctx, B.name, 250, 26, { orb: true }), W - 20, y, 26, B.c1, { orb: true, align: 'right' });
-    ctx.font = `900 26px ${ORB}`;
-    const wa = Math.min(260, ctx.measureText(A.name).width);
-    const wb = Math.min(260, ctx.measureText(B.name).width);
+    const wa = Math.min(260, textWidth(ctx, A.name, `900 26px ${ORB}`));
+    const wb = Math.min(260, textWidth(ctx, B.name, `900 26px ${ORB}`));
     for (let i = 0; i < Math.min(5, b.teams.A.wins); i++) this.star(ctx, 20 + wa + 16 + i * 16, y, '#ffd34a');
     for (let i = 0; i < Math.min(5, b.teams.B.wins); i++) this.star(ctx, W - 20 - wb - 16 - i * 16, y, '#ffd34a');
     // VS hex
@@ -174,7 +199,7 @@ export class HUD {
       // ticks
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       for (let i = 1; i < 10; i++) ctx.fillRect(x + (bw * i) / 10, y, 1, h);
-      txt(ctx, fmt(c.hp), right ? x + bw - 8 : x + 8, y + h / 2 + 1, 13, '#ffffff', { align: right ? 'right' : 'left' });
+      txt(ctx, fmt(c.hp), right ? x + bw - 8 : x + 8, y + h / 2 + 1, 13, '#ffffff', { align: right ? 'right' : 'left', live: true });
 
       // gauges
       const lx = right ? W - 20 : 20;
@@ -208,20 +233,18 @@ export class HUD {
       const units = t.units.length;
       const res = t.reserve.length;
       const label = units + (res ? ` +${res}` : '');
-      ctx.font = `10px ${PIX}`;
-      const lw = ctx.measureText(label).width + 18;
+      const lw = textWidth(ctx, label, `10px ${PIX}`) + 18;
       const ux = right ? x - lw : x;
       ctx.fillStyle = th[k].c1;
       ctx.fillRect(ux + 2, y - 6, 6, 5);
       ctx.fillRect(ux, y, 10, 6);
-      txt(ctx, label, ux + 16, y + 1, 10, '#ffffff', { align: 'left', outline: 3 });
+      txt(ctx, label, ux + 16, y + 1, 10, '#ffffff', { align: 'left', outline: 3, live: true });
       x = right ? ux - 10 : ux + lw + 10;
       for (const [key, short, color] of defs) {
         const n = t.stacks[key];
         if (n <= 0) continue;
         const s = `${short}x${n}`;
-        ctx.font = `9px ${PIX}`;
-        const bw = ctx.measureText(s).width + 12;
+        const bw = textWidth(ctx, s, `9px ${PIX}`) + 12;
         const bx = right ? x - bw : x;
         roundRectPath(ctx, bx, y - 8, bw, 17, 4);
         ctx.fillStyle = 'rgba(8,6,20,0.85)';
@@ -229,8 +252,30 @@ export class HUD {
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.5;
         ctx.stroke();
-        txt(ctx, s, bx + bw / 2, y + 1, 9, color, { outline: 0 });
+        txt(ctx, s, bx + bw / 2, y + 1, 9, color, { outline: 0, live: true });
         x = right ? bx - 6 : bx + bw + 6;
+      }
+      if (b.underdogMul(k) > 1) {
+        const s = `UNDERDOG +${Math.round((b.w.underdog.mul - 1) * 100)}%`;
+        const bw = textWidth(ctx, s, `9px ${PIX}`) + 12;
+        const bx = right ? x - bw : x;
+        roundRectPath(ctx, bx, y - 8, bw, 17, 4);
+        ctx.fillStyle = 'rgba(125,255,154,0.18)';
+        ctx.fill();
+        ctx.strokeStyle = '#7dff9a';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        txt(ctx, s, bx + bw / 2, y + 1, 9, '#7dff9a', { outline: 0 });
+      }
+    }
+  }
+
+  drawCommanderLabels(ctx, b) {
+    for (const k of ['A', 'B']) {
+      for (const c of b.commanders[k]) {
+        const p = commanderPos(k, c.i);
+        const r = c.i === 0 ? 20 : 16;
+        txt(ctx, fmt(c.rec.coins), p.x, p.y + r + 9, 8, '#ffd34a', { outline: 3, live: true });
       }
     }
   }
@@ -280,8 +325,7 @@ export class HUD {
     }
     if (b.happyHour > 0) {
       const s = `HAPPY HOUR ${w.gifts.happyHourMul}X  ${Math.ceil(b.happyHour)}s`;
-      ctx.font = `10px ${PIX}`;
-      const pw = ctx.measureText(s).width + 20;
+      const pw = textWidth(ctx, s, `10px ${PIX}`) + 20;
       roundRectPath(ctx, W / 2 - pw / 2, y - 9, pw, 19, 9);
       ctx.fillStyle = `rgba(255,95,168,${0.75 + 0.2 * Math.sin(time * 6)})`;
       ctx.fill();
@@ -339,8 +383,7 @@ export class HUD {
       if (a <= 0) continue;
       ctx.globalAlpha = a;
       const s = fitText(ctx, f.text, 430, f.tier >= 3 ? 11 : 9);
-      ctx.font = `${f.tier >= 3 ? 11 : 9}px ${PIX}`;
-      const tw = ctx.measureText(s).width + 16;
+      const tw = textWidth(ctx, s, `${f.tier >= 3 ? 11 : 9}px ${PIX}`) + 16;
       roundRectPath(ctx, W / 2 - tw / 2, y - 10, tw, 20, 6);
       ctx.fillStyle = 'rgba(6,4,16,0.7)';
       ctx.fill();
@@ -395,7 +438,8 @@ export class HUD {
         const s = easeOutBack(clamp((c.t - 0.1) / 0.4, 0, 1));
         ctx.translate(W / 2, 330);
         ctx.scale(s, s);
-        txt(ctx, c.mode === 'execute' ? 'FINAL BLOW' : 'GRAND SUMMON', 0, 0, 48, col.c1, { orb: true, outline: 8, outlineColor: '#ffffff' });
+        const title = c.mode === 'execute' ? 'FINAL BLOW' : c.variant === 'orbital' ? 'ORBITAL STRIKE' : 'GRAND SUMMON';
+        txt(ctx, title, 0, 0, 48, col.c1, { orb: true, outline: 8, outlineColor: '#ffffff' });
         txt(ctx, name, 0, 44, 16, '#ffffff', { outline: 4 });
         if (c.gift) txt(ctx, String(c.gift).toUpperCase(), 0, 70, 10, '#ffd34a', { outline: 3 });
       } else if (c.mode === 'execute' || b.phase === 'victory') {
@@ -439,8 +483,12 @@ export class HUD {
       txt(ctx, cleanName(exec.name, 16).toUpperCase(), W / 2, 700, 22, '#ffffff', { orb: true });
       if (v.gift) txt(ctx, String(v.gift).toUpperCase(), W / 2, 730, 10, '#ffd34a', { outline: 3 });
     }
-    if (v.mvp && v.mvp !== exec) txt(ctx, `TOP DAMAGE  ${cleanName(v.mvp.name, 12).toUpperCase()}  ${fmt(v.mvp.rd)}`, W / 2, 780, 11, col.c1, { outline: 3 });
-    txt(ctx, `NEXT ROUND IN ${Math.max(0, Math.ceil(v.t))}`, W / 2, 840, 12, 'rgba(255,255,255,0.85)', { outline: 3 });
+    if (v.mvp && v.mvp !== exec) txt(ctx, `TOP DAMAGE  ${cleanName(v.mvp.name, 12).toUpperCase()}  ${fmt(v.mvp.rd)}`, W / 2, 762, 11, col.c1, { outline: 3 });
+    if (v.top && v.top.length) {
+      txt(ctx, 'TOP GIFTERS', W / 2, 786, 9, 'rgba(255,255,255,0.7)', { outline: 0 });
+      v.top.forEach((r, i) => txt(ctx, `${i + 1}. ${cleanName(r.name, 12).toUpperCase()}  ${fmt(r.coins)}`, W / 2, 804 + i * 16, 10, i === 0 ? '#ffd34a' : '#ffffff', { outline: 3 }));
+    }
+    txt(ctx, `NEXT ROUND IN ${Math.max(0, Math.ceil(v.t))}`, W / 2, 866, 12, 'rgba(255,255,255,0.85)', { outline: 3 });
     ctx.restore();
   }
 

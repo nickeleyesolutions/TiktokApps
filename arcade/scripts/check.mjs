@@ -110,6 +110,55 @@ const { THEMES } = await import('../public/js/shared/defaults.js');
 
 const weights = deepMerge(clone(DEFAULT_WEIGHTS), {});
 const theme = THEMES['azure-inferno'];
+
+// ---- rule tests on a fresh battle (no crowd)
+{
+  const tenv = { weights: () => weights, theme: () => theme, fx: new FX(), proj: new Projectiles(), sfx: { play() {} }, voice: { say() {} }, onHall: () => {} };
+  const b = new Battle(tenv);
+  const n = createNormalizer();
+  const send = (kind, raw) => b.handle(n.normalize(kind, raw));
+  const user = (id, sub) => ({ userId: id, displayId: 'u' + id, nickname: 'U' + id });
+  console.log('\nrules');
+  test('subscriber units get the HP multiplier', () => {
+    send('chat', { user: user('s1'), content: 'a', userIdentity: { isSubscriberOfAnchor: true } });
+    send('chat', { user: user('p1'), content: 'a', userIdentity: {} });
+    const sub = b.users.get('s1').unit;
+    const plain = b.users.get('p1').unit;
+    assert.equal(sub.max, plain.max * weights.subs.hpMul);
+  });
+  test('underdog multiplier applies only past the HP gap', () => {
+    assert.equal(b.underdogMul('A'), 1);
+    b.teams.A.core.hp = b.teams.A.core.max * 0.4;
+    assert.equal(b.underdogMul('A'), weights.underdog.mul);
+    assert.equal(b.underdogMul('B'), 1);
+    b.teams.A.core.hp = b.teams.A.core.max;
+  });
+  test('first gift is flagged once, orbital variant picked by coins', () => {
+    send('gift', { user: user('g1'), giftId: '1', repeatCount: 1, repeatEnd: 1, gift: { name: 'Lion', diamondCount: 29999, type: 2 } });
+    assert.equal(b.users.get('g1').gifted, true);
+    const c = b.cine || b.cineQueue[b.cineQueue.length - 1];
+    assert.equal(c.variant, 'orbital');
+    b.cine = null;
+    b.cineQueue.length = 0;
+  });
+  test('top 3 gifters per team become commanders, ranked by coins', () => {
+    for (const [id, coins] of [['c1', 30], ['c2', 500], ['c3', 100], ['c4', 5]]) {
+      send('chat', { user: user(id), content: 'b', userIdentity: {} });
+      b.users.get(id).coins = coins;
+    }
+    b.cmdT = 0;
+    b.updateCommanders(0.016);
+    assert.deepEqual(b.commanders.B.map((c) => c.rec.id), ['g1', 'c2', 'c3'], 'the Lion gifter (auto-assigned to B) outranks everyone');
+  });
+  test('killing a bounty target pays the other team', () => {
+    const victim = b.users.get('c2').unit;
+    b.teams.B.bounty = victim;
+    const before = b.teams.A.stacks.bravery;
+    b.koUnit(victim, { team: 'A', kind: 'bolt' });
+    assert.equal(b.teams.B.bounty, null);
+    assert.equal(b.teams.A.stacks.bravery, before + weights.bounty.braveryReward);
+  });
+}
 const env = {
   weights: () => weights,
   theme: () => theme,

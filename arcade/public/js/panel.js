@@ -84,6 +84,8 @@ export function buildPanel(root, api) {
       btn('Join A x10', () => api.mock({ kind: 'join', team: 'A', n: 10 }), 'a'),
       btn('Join B x1', () => api.mock({ kind: 'join', team: 'B', n: 1 }), 'b'),
       btn('Join B x10', () => api.mock({ kind: 'join', team: 'B', n: 10 }), 'b'),
+      btn('Subscriber joins A', () => api.mock({ kind: 'subjoin', team: 'A', n: 1 }), 'a'),
+      btn('Subscriber joins B', () => api.mock({ kind: 'subjoin', team: 'B', n: 1 }), 'b'),
     ]),
     el('p', { class: 'note', text: 'Likes, shares and gifts below come from:' }),
     teamSeg,
@@ -128,6 +130,11 @@ export function buildPanel(root, api) {
         api.cmd({ type: 'forceGate', team: 'B' });
         setTimeout(() => api.mock({ kind: 'gift', gift: 'galaxy', team: 'A', n: 1 }), 1500);
       }, 'g'),
+      btn('Orbital strike test', () => api.mock({ kind: 'gift', gift: 'lion', team: 'A', n: 1 }), 'g'),
+      btn('Underdog test', () => {
+        api.cmd({ type: 'heal', team: 'B' });
+        api.cmd({ type: 'setHp', team: 'A', pct: 40 });
+      }),
       btn('Phoenix revive test', () => {
         api.cmd({ type: 'forceGate', team: 'B' });
         setTimeout(() => api.mock({ kind: 'gift', gift: 'galaxy', team: 'B', n: 1 }), 1500);

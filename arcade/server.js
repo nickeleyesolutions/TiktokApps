@@ -75,8 +75,32 @@ function publish(evt, source) {
   if (!evt) return;
   if (evt.type === 'chat' && handleOwnerCommand(evt)) return;
   if (source !== 'replay') recorder.write(evt);
-  io.to('stage').emit('evt', evt);
+  queueStage(evt);
   io.to('director').emit('feed', summarize(evt, source));
+}
+
+// Batch events to the stage at ~30 Hz. Busy rooms can send hundreds of
+// events a second; one packet per tick is far cheaper than one per event.
+// Likes from the same viewer inside one packet are merged.
+let stageQueue = [];
+let flushTimer = null;
+function queueStage(evt) {
+  if (evt.type === 'like') {
+    const prev = stageQueue.find((e) => e.type === 'like' && e.user.id === evt.user.id);
+    if (prev) {
+      prev.count += evt.count;
+      return;
+    }
+    evt = { ...evt };
+  }
+  stageQueue.push(evt);
+  if (!flushTimer) flushTimer = setTimeout(flushStage, 33);
+}
+function flushStage() {
+  flushTimer = null;
+  if (!stageQueue.length) return;
+  io.to('stage').emit('evts', stageQueue);
+  stageQueue = [];
 }
 
 function summarize(e, source) {
@@ -191,6 +215,7 @@ function attachControls(socket) {
     const team = m.team === 'A' || m.team === 'B' ? m.team : null;
     const n = Math.max(1, Math.min(200, Number(m.n) || 1));
     if (m.kind === 'join' && team) mock.join(team, n);
+    else if (m.kind === 'subjoin' && team) mock.join(team, n, { sub: true });
     else if (m.kind === 'likes') mock.likes(team, Math.min(20000, Number(m.n) || 100));
     else if (m.kind === 'share') mock.share(team);
     else if (m.kind === 'follow') mock.follow(team);

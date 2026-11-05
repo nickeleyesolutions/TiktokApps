@@ -46,7 +46,8 @@ director (phone) --- cmd / weights / mock ----------------+    status <-+
   - `fx.js`: pooled particles, rings, lightning, slashes, damage numbers.
   - `post.js`: WebGL2 pass over layers 1+2: bloom, scanlines, aberration, vignette, curvature, pixelate, glitch, grading.
   - `hud.js`: LAYER 3 on its own canvas so text stays sharp.
-  - `audio.js`: procedural Web Audio SFX + Web Speech announcer.
+  - `audio.js`: procedural Web Audio SFX, chiptune `Music` loop (intensity follows the battle), Web Speech announcer.
+  - `textcache.js`: cached text sprites for HUD labels, names and damage numbers.
   - `panel.js`: control UI shared by `/director` and the in-stage drawer (`~` key or gear).
 
 Normalized events (the only shapes `Battle.handle` sees):
@@ -89,6 +90,13 @@ these numbers are under "Research notes".
 - **Limit**: fills from damage taken + combos. Full = next tier >= `limit.triggerTier` gift plays a Limit Break.
 - **Execution gate**: normal damage cannot take a core below `execution.gatePct`. Gate window: chip damage only, a gift of tier >= gate tier from the attackers executes (round ends, executioner enters the Hall of Fame). Defenders answering with the same tier get Phoenix Revive. Timer out = Second Wind heal, finisher tier drops by one (down to `minTier`); after `maxSecondWinds` the gate collapses by itself so rounds always end.
 - **NPC spawner** ("devil side"): keeps at least `npc.minA` / `npc.minB` units per side.
+- **Commanders**: the top 3 session gifters per team sit above their core as crowned turrets (`commanders.*`). Losing the #1 seat triggers a "NEW COMMANDER" callout, which is the whale-vs-whale hook.
+- **Underdog bonus**: a team behind by `underdog.gapPct` HP points gets `underdog.mul` gift power (badge in the stack row).
+- **Bounties**: every `bounty.everySeconds` each side's top damage dealer is marked; whoever KOs them pays their team limit + bravery.
+- **First gift bonus**: a viewer's first gift of the session gets `firstGift.mul`.
+- **Subscribers** (`isSub`): unit HP x `subs.hpMul`, ATB x `subs.atbMul`, inner white ring.
+- **Summon variants**: tier-4 gifts below `gifts.orbitalCoins` play the Leviathan, at or above it the Orbital Strike.
+- **Music**: procedural chiptune; speeds up and adds layers during stagger / happy hour / boss (level 1) and the execution gate (level 2), ducks under cinematics, stops on the victory screen.
 - **Boss invasion**, **happy hour**: director buttons or owner chat commands.
 
 Owner chat commands (owners list, moderators, or the host): `!hh`, `!boss`,
@@ -104,7 +112,10 @@ Owner chat commands (owners list, moderators, or the host): `!hh`, `!boss`,
 5. **Keep the HUD readable on a phone**: key text >= 14 design px, nothing important below y = 860 (TikTok chat covers the lower left on phones; zones in `hud.js` are eyeballed, check on a real phone).
 6. **Compression-friendly visuals**: avoid 1 px scanlines, grain, dither and full-screen noise. Encoders discard fine detail first at streaming bitrates (general video-encoding behavior, not a TikTok-specific source).
 7. **No off-platform links, QR codes or payment handles** on the canvas.
-8. Perf budget: game JS < 4 ms/frame at the extreme crowd setting. `npm run check` prints the update cost; measured about 1.3 to 1.8 ms/frame for update + world draw with 700 seekers in headless Chromium.
+8. Perf budget: game JS < 5 ms/frame at the extreme crowd setting (700 seekers, 3,500 particles). The director shows live per-stage CPU ms (update, backdrop, battle, post, HUD); `window.__arena.perf()` returns the same. Measured in headless Chromium at 1080: 6.4 ms before the second-pass optimizations, 4.2 ms after.
+9. Keep draw calls batched: particles and seeker heads go into one Path2D per color (and alpha step); repeated text goes through `TEXT` (textcache.js). Text that changes every frame (HP numbers, stack counts) passes `live: true` so it does not churn the cache.
+10. The stage receives events in ~30 Hz packets (`evts`); likes from the same viewer are merged per packet. Handle both `evt` and `evts`.
+11. Auto quality (`render.autoQuality`) steps down particles, smoke, then render resolution when the frame rate drops, and steps back up when it recovers. Turn it off when benchmarking in headless browsers (software rendering reads as slow).
 
 ## Recipes
 
@@ -140,8 +151,8 @@ launch angle in `combat.js`; seekers and FX are position-agnostic.
 
 ## Ideas backlog
 
-- Top gifters from `roomUser` ranks as permanent "commander" turrets behind each core.
-- Fan club / subscriber perks (`isSub`): stronger base unit, metallic ring (ring exists already).
+- Use TikTok's own `roomUser` top-gifter ranks to seed commanders when joining mid-stream.
 - `emote` and `questionNew` events as abilities.
+- More summon variants keyed by gift name.
 - Top vs bottom layout, theme-specific cinematics, more summons per gift name.
 - Per-viewer cooldown display, MVP of the session card between rounds.

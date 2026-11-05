@@ -198,3 +198,128 @@ export class Voice {
     }
   }
 }
+
+// Procedural chiptune loop on the Web Audio clock (no files, no licensing).
+// Am - F - C - G, 16 steps per bar. Intensity changes the arrangement:
+//   0 = bass + drums, 1 = + lead arpeggio (stagger, happy hour),
+//   2 = faster + high arpeggio (execution gate), -1 = muted (victory)
+const PROG = [
+  { root: 45, tones: [0, 3, 7] }, // A minor
+  { root: 41, tones: [0, 4, 7] }, // F
+  { root: 48, tones: [0, 4, 7] }, // C
+  { root: 43, tones: [0, 4, 7] }, // G
+];
+const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+export class Music {
+  constructor(sfx) {
+    this.sfx = sfx;
+    this.on = true;
+    this.vol = 0.35;
+    this.step = 0;
+    this.next = 0;
+    this.intensity = 0;
+    this.duck = 1;
+    this.gain = null;
+    this.timer = null;
+  }
+
+  start() {
+    if (!this.timer) this.timer = setInterval(() => this.tick(), 25);
+  }
+
+  setLevel(intensity, duck) {
+    this.intensity = intensity;
+    this.duck = duck;
+    if (this.gain) {
+      const c = this.sfx.ctx;
+      const target = this.on && intensity >= 0 ? this.vol * duck : 0;
+      this.gain.gain.setTargetAtTime(target, c.currentTime, 0.15);
+    }
+  }
+
+  tick() {
+    const c = this.sfx.ctx;
+    if (!c || c.state !== 'running') return;
+    if (!this.gain) {
+      this.gain = c.createGain();
+      this.gain.gain.value = 0;
+      this.gain.connect(this.sfx.master);
+      this.setLevel(this.intensity, this.duck);
+    }
+    if (!this.on || this.intensity < 0) {
+      this.next = 0;
+      return;
+    }
+    const tempo = this.intensity >= 2 ? 146 : this.intensity === 1 ? 132 : 118;
+    const len = 60 / tempo / 4;
+    if (this.next < c.currentTime) this.next = c.currentTime + 0.05;
+    while (this.next < c.currentTime + 0.12) {
+      this.playStep(this.step, this.next, len);
+      this.next += len;
+      this.step = (this.step + 1) % 64;
+    }
+  }
+
+  note(t, freq, dur, type, vol) {
+    const c = this.sfx.ctx;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g);
+    g.connect(this.gain);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  hit(t, dur, vol, f0, f1, type) {
+    const c = this.sfx.ctx;
+    const src = c.createBufferSource();
+    src.buffer = this.sfx.noiseBuf;
+    const f = c.createBiquadFilter();
+    f.type = type;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f);
+    f.connect(g);
+    g.connect(this.gain);
+    src.start(t, Math.random() * 0.5);
+    src.stop(t + dur + 0.02);
+  }
+
+  playStep(s, t, len) {
+    const bar = PROG[(s >> 4) % 4];
+    const i = s % 16;
+    // drums
+    if (i % 4 === 0) {
+      const c = this.sfx.ctx;
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.frequency.setValueAtTime(150, t);
+      o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+      g.gain.setValueAtTime(0.5, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(g);
+      g.connect(this.gain);
+      o.start(t);
+      o.stop(t + 0.18);
+    }
+    if (i === 4 || i === 12) this.hit(t, 0.14, 0.25, 3000, 900, 'bandpass');
+    if (i % 2 === 1 || this.intensity >= 2) this.hit(t, 0.04, i % 4 === 2 ? 0.12 : 0.07, 9000, 6000, 'highpass');
+    // bass: driving 8ths with an octave bounce
+    if (i % 2 === 0) this.note(t, hz(bar.root - 12 + (i % 4 === 2 ? 12 : 0)), len * 1.8, 'triangle', 0.32);
+    // lead arpeggio
+    if (this.intensity >= 1) {
+      const tone = bar.tones[i % 3] + (i % 6 >= 3 ? 12 : 0);
+      this.note(t, hz(bar.root + 24 + tone), len * 0.9, 'square', 0.05);
+    }
+    if (this.intensity >= 2 && i % 2 === 0) this.note(t, hz(bar.root + 36 + bar.tones[(i >> 1) % 3]), len * 0.6, 'square', 0.035);
+  }
+}
