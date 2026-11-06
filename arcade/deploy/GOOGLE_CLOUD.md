@@ -144,6 +144,15 @@ for you to go live.
    `owners.usernames` in `/opt/arena/arcade/config/weights.json`).
 5. End: director **Stop**, then end the LIVE in TikTok. Optionally stop the VM.
 
+## Getting updates
+
+When I push changes, run this on the VM. Your settings, tuned weights, hall of
+fame and recordings are kept:
+
+```bash
+bash TiktokApps/arcade/deploy/update.sh
+```
+
 ## Troubleshooting
 
 - `curl -s localhost:3000/api/health` on the VM: `bridge.status`, `broadcast.status`, `stage.fps`.

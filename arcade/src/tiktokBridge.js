@@ -77,7 +77,8 @@ export class TikTokBridge extends EventEmitter {
       console.log(`[tiktok] connected to @${this.username} room ${this.state.roomId}`);
     } catch (e) {
       if (this.conn !== conn) return;
-      const offline = e && /offline|not live|not started|UserOffline/i.test(String(e.name) + String(e.message));
+      // e.g. "The requested user isn't online :(" from the connector
+      const offline = e && /offline|not live|not started|isn.?t online|not online|UserOffline/i.test(String(e.name) + String(e.message));
       if (offline) conn.disconnect().catch(() => {});
       this.setState({ status: offline ? 'waiting-for-live' : 'error', error: String((e && e.message) || e).slice(0, 200) });
       console.warn(`[tiktok] connect failed (@${this.username}):`, this.state.error);
