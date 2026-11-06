@@ -6,7 +6,7 @@ set -euo pipefail
 REPO_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$REPO_DIR"
 git pull --ff-only
-sudo rsync -a --delete --exclude node_modules --exclude arcade/config/weights.json --exclude arcade/data --exclude arcade/recordings "$REPO_DIR/" /opt/arena/
+sudo rsync -a --delete --exclude node_modules --exclude arcade/config --exclude arcade/data --exclude arcade/recordings "$REPO_DIR/" /opt/arena/
 sudo cp /opt/arena/arcade/deploy/arena-server.service /opt/arena/arcade/deploy/arena-broadcast.service /etc/systemd/system/
 sudo chown -R arena:arena /opt/arena
 sudo -u arena bash -c 'cd /opt/arena/arcade && npm ci --omit=dev --no-audit --no-fund'
