@@ -1,0 +1,15 @@
+[Unit]
+Description=Arcade Arena game server (TikTok events -> stage)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=arena
+WorkingDirectory=/opt/arena/arcade
+EnvironmentFile=/etc/arena/arena.env
+ExecStart=/usr/bin/node server.js --record
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

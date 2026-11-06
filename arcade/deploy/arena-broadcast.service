@@ -1,0 +1,17 @@
+[Unit]
+Description=Arcade Arena headless broadcast (Chrome + ffmpeg -> TikTok RTMP)
+After=arena-server.service
+Requires=arena-server.service
+
+[Service]
+User=arena
+WorkingDirectory=/opt/arena/arcade
+EnvironmentFile=/etc/arena/stream.env
+Environment=XDG_RUNTIME_DIR=/run/user/1500
+ExecStartPre=/bin/sleep 3
+ExecStart=/opt/arena/arcade/deploy/broadcast.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

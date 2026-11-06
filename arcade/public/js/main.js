@@ -86,7 +86,8 @@ const env = {
 const battle = new Battle(env);
 
 // Auto quality. Level 0 = full. 1 = fewer particles, no smoke. 2 = render
-// resolution down a step. 3 = 720 render. Steps down after 3 s under 85% of
+// resolution down a step, dimension field off. 3 = 720 render, no post FX
+// (matters on GPU-less cloud VMs where WebGL runs in software). Steps down after 3 s under 85% of
 // the target frame rate, back up after 12 s above 97%.
 const quality = { level: 0, low: 0, high: 0 };
 function autoQuality(dt) {
@@ -216,6 +217,7 @@ if (serverMode) {
       else if (m.kind === 'follow') mock.follow(team);
       else if (m.kind === 'gift') mock.gift(m.gift, team, m.n || 1);
       else if (m.kind === 'subjoin' && team) mock.join(team, m.n || 1, { sub: true });
+      else if (m.kind === 'chat') mock.chat(team, m.text || '');
     },
     cmd: onCommand,
     chaos: (lvl) => mock.chaos(lvl),
@@ -265,7 +267,7 @@ let musicT = 0;
 function drawHyper() {
   const dim = battle.asc.shown;
   const hw = weights.hyper;
-  if (dim > 1.02 && hw.intensity > 0 && field.ok) {
+  if (dim > 1.02 && hw.intensity > 0 && field.ok && quality.level < 2) {
     // the field animates slowly, so 30 Hz is plenty (halves its GPU cost)
     if ((fieldFrame++ & 1) === 0 || !fieldCanvas) {
       fieldCanvas = field.render({ time, dim, energy: Math.min(1, battle.asc.energy / 10000), split: battle.territoryX / W, beat, a: theme.A.c1, b: theme.B.c1 });
@@ -282,6 +284,63 @@ function drawHyper() {
     skyCube.setDim(dim > 4.5 ? 5 : 4);
     skyCube.project(time, W / 2, 352, 58 + (dim - 3) * 12 + beat * 4, 1 + (dim - 3) * 0.25);
     skyCube.draw(wctx, axisColors(theme.A, theme.B), Math.min(1, dim - 2.3) * 0.75, 2);
+  }
+}
+
+// CPU fallback for machines without WebGL (GPU-less cloud VMs run Chrome with
+// --disable-webgl, because software WebGL stalls on every frame upload). Keeps
+// the core look: a quarter-res blurred bloom added back, plus scanlines.
+const lite = { a: null, b: null, scan: null, scanKey: '' };
+function liteCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, w);
+  c.height = Math.max(1, h);
+  return c;
+}
+function litePost() {
+  const p = weights.post;
+  // glow without filters: shrink to 1/4, then 1/16, and stretch back additively
+  // (bilinear upscaling of a tiny image is a cheap, soft blur)
+  const w4 = Math.round(world.width / 4);
+  if (!lite.a || lite.a.width !== w4) {
+    lite.a = liteCanvas(w4, Math.round(world.height / 4));
+    lite.b = liteCanvas(Math.round(world.width / 16), Math.round(world.height / 16));
+  }
+  const ac = lite.a.getContext('2d');
+  const bc = lite.b.getContext('2d');
+  ac.globalCompositeOperation = 'copy';
+  ac.drawImage(world, 0, 0, lite.a.width, lite.a.height);
+  bc.globalCompositeOperation = 'copy';
+  bc.drawImage(lite.a, 0, 0, lite.b.width, lite.b.height);
+  wctx.setTransform(1, 0, 0, 1, 0, 0);
+  wctx.globalCompositeOperation = 'lighter';
+  wctx.globalAlpha = Math.min(1, p.bloom * 0.35 * (1 + beat * 0.2));
+  wctx.drawImage(lite.a, 0, 0, world.width, world.height);
+  wctx.globalAlpha = Math.min(1, p.bloom * 0.45);
+  wctx.drawImage(lite.b, 0, 0, world.width, world.height);
+  wctx.globalAlpha = 1;
+  wctx.globalCompositeOperation = 'source-over';
+  if (p.scanlines > 0) {
+    const pitch = Math.max(2, Math.round(p.scanlinePitch * S));
+    const key = pitch + '|' + world.width;
+    if (lite.scanKey !== key) {
+      const c = document.createElement('canvas');
+      c.width = 1;
+      c.height = pitch;
+      const g = c.getContext('2d');
+      g.fillStyle = 'rgba(0,0,0,1)';
+      g.fillRect(0, 0, 1, Math.max(1, Math.round(pitch / 2)));
+      lite.scan = wctx.createPattern(c, 'repeat');
+      lite.scanKey = key;
+    }
+    wctx.globalAlpha = p.scanlines * 0.9;
+    wctx.fillStyle = lite.scan;
+    wctx.fillRect(0, 0, world.width, world.height);
+    wctx.globalAlpha = 1;
+  }
+  if (battle.flash > 0) {
+    wctx.fillStyle = `rgba(255,255,255,${battle.flash * 0.5})`;
+    wctx.fillRect(0, 0, world.width, world.height);
   }
 }
 
@@ -366,10 +425,11 @@ function frame(now) {
   t1 = performance.now();
   mark('world', t1 - t0);
 
-  let postOn = weights.post.enabled && post.ok;
+  let postOn = weights.post.enabled && post.ok && quality.level < 3;
   if (postOn) postOn = post.render(world, postParams());
   t0 = performance.now();
   mark('post', t0 - t1);
+  if (!postOn && weights.post.enabled) litePost();
   if (postOn !== postWasOn) {
     postWasOn = postOn;
     postCanvas.style.visibility = postOn ? 'visible' : 'hidden';

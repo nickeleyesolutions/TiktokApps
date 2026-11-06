@@ -1,0 +1,3 @@
+# Accounts to check with `npm run find-live`. Add creators you know stream often.
+lofigirl dukedennis adinross mrbeast khaby.lame jakepaul zachking bellapoarch
+gordonramsayofficial ishowspeed kaicenat westcol rivers_gg ibai thegrefg

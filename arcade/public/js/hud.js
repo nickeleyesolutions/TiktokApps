@@ -10,14 +10,40 @@
 import { W, H, TAU, clamp, rgba, fmt, roundRectPath, easeOutBack, cleanName } from './util.js';
 import { avatarImage, pixelAvatar, unitSprite } from './sprites.js';
 import { UNIT_R, ELITE_R, commanderPos, DIMENSIONS } from './combat.js';
+import { INTENTIONS } from './randonaut.js';
 
 // Places the rotating guide card can sit. All avoid the TikTok header, the
 // lower-left chat zone and the right-hand buttons (approximate, see drawSafeZones).
 const ORACLE_SLOTS = [
   { x: 360, y: 324, w: 560 },
-  { x: 546, y: 930, w: 300 },
-  { x: 360, y: 846, w: 272 },
+  { x: 340, y: 846, w: 290 },
 ];
+
+// Legend panel: bottom right, clear of TikTok's chat (left) and buttons (right edge).
+const LEGEND = { x: 478, y: 880, w: 152 };
+const LEGEND_ROWS = [
+  ['like', 'LIKE', 'ATTACK', '#ff5fa8'],
+  ['chat', 'CHAT', 'JOIN IN', '#ffffff'],
+  ['side', 'A / B', 'PICK SIDE', '#7df9ff'],
+  ['share', 'SHARE', 'SHIELD', '#9ff6ff'],
+  ['follow', 'FOLLOW', 'HASTE', '#7dff9a'],
+  ['gift', 'GIFT', 'POWER UP', '#ffd34a'],
+];
+
+// 7x6 pixel icons for the legend (X = filled)
+const ICONS = {
+  like: ['.XX.XX.', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'],
+  chat: ['XXXXXXX', 'X.....X', 'X.X.X.X', 'X.....X', 'XXXXXXX', '.X.....'],
+  side: ['XX...XX', 'X.X.X.X', 'XXX.XX.', 'X.X.X.X', 'X.X.XX.', '.......'],
+  share: ['....XX.', '...XXXX', 'XXXXXX.', 'X...XX.', 'X......', 'XXXXX..'],
+  follow: ['...X...', '...X...', 'XXXXXXX', '...X...', '...X...', '.......'],
+  gift: ['.X...X.', 'XXXXXXX', 'X..X..X', 'XXXXXXX', 'X..X..X', 'XXXXXXX'],
+};
+function icon(ctx, name, x, y, px, color) {
+  const rows = ICONS[name];
+  ctx.fillStyle = color;
+  for (let j = 0; j < rows.length; j++) for (let i = 0; i < rows[j].length; i++) if (rows[j][i] === 'X') ctx.fillRect(x + i * px, y + j * px, px, px);
+}
 
 // thin-film style hue sweep used for holographic edges
 function holo(ctx, x0, x1, time, a = 1) {
@@ -113,6 +139,8 @@ export class HUD {
     if (!(w.guide.enabled && w.guide.oracle)) this.drawFeedOrGuide(ctx, b, theme, w, time);
     else if (!riftShown && !oracleTop && !b.cine) this.drawFeed(ctx, b);
     this.drawBuffs(ctx, b, time);
+    this.drawRandonaut(ctx, b, theme, time);
+    if (w.legend.enabled && b.phase === 'battle' && !b.cine) this.drawLegend(ctx, b, time);
     this.drawBanners(ctx, b, time);
     if (b.cine) this.drawCine(ctx, b, theme, time);
     if (b.phase === 'victory' && !b.cine) this.drawVictory(ctx, b, theme, o.S, time);
@@ -256,6 +284,8 @@ export class HUD {
     add(`${fmt(g.orbitalCoins)}+ COINS`, 'ORBITAL STRIKE', '#d36bff');
     add(`${fmt(w.mana.likesPerCast)} LIKES`, 'METEOR SHOWER', '#ff9fd0');
     add('SHARE THE LIVE', '10s SHIELD + BARRAGE', '#9ff6ff');
+    add('TAP LIKE', 'HEART MISSILES AT THE ENEMY', '#ff5fa8');
+    if (w.randonaut.enabled) add('TYPE FIRE ICE STORM LIGHT VOID', 'STEER THE NEXT ANOMALY', '#d36bff');
     if (w.commanders.enabled) add('TOP 3 GIFTERS', 'COMMANDER TURRET + CROWN', '#ffd34a');
     if (w.ascension.enabled && b.asc.level < 5) {
       const need = w.ascension.thresholds[b.asc.level] - b.asc.energy;
@@ -275,6 +305,8 @@ export class HUD {
       if (t.limitReady > 0) c.push({ give: `${fmt(b.coinsForTier(w.limit.triggerTier))}+ FOR ${name}`, unlock: 'LIMIT BREAK', color: b.col(k).c1, hot: true });
       if (b.underdogMul(k) > 1) c.push({ give: `GIFT ${name}`, unlock: `+${Math.round((w.underdog.mul - 1) * 100)}% UNDERDOG POWER`, color: '#7dff9a' });
     }
+    const rv = b.rando;
+    if (rv.phase === 'live' && rv.ev.kind === 'attractor') c.push({ give: 'TAP LIKES NOW', unlock: 'CLAIM THE ATTRACTOR', color: '#ffd34a', hot: true });
     const r = b.rift;
     if (r.phase === 'active') c.push({ give: `${r.type.unit} FOR YOUR TEAM`, unlock: `${r.type.rewardName}: ${r.type.rewardText}`, color: '#d36bff', hot: true });
     return c;
@@ -346,6 +378,70 @@ export class HUD {
       txt(ctx, s, W / 2, y + 1, f.tier >= 3 ? 11 : 9, f.color, { outline: 0 });
       ctx.globalAlpha = 1;
       y += 22;
+    }
+  }
+
+  // ---- legend: always-on "what do I do" panel. Rows flash when someone does it.
+  drawLegend(ctx, b, time) {
+    const L = LEGEND;
+    const rowH = 19;
+    const h = 22 + LEGEND_ROWS.length * rowH + 4;
+    roundRectPath(ctx, L.x, L.y, L.w, h, 8);
+    ctx.fillStyle = 'rgba(6,3,18,0.78)';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = holo(ctx, L.x, L.x + L.w, time, 0.8);
+    ctx.stroke();
+    txt(ctx, 'HOW TO PLAY', L.x + L.w / 2, L.y + 12, 8, '#e7b6ff', { outline: 0 });
+    LEGEND_ROWS.forEach(([key, verb, result, color], i) => {
+      const y = L.y + 24 + i * rowH;
+      const hit = b.legendHit[key] || 0;
+      if (hit > 0) {
+        ctx.fillStyle = rgba(color, 0.25 * hit);
+        ctx.fillRect(L.x + 3, y - 1, L.w - 6, rowH - 2);
+      }
+      icon(ctx, key, L.x + 8, y + 3, 2, color);
+      txt(ctx, verb, L.x + 26, y + 8, 8, color, { outline: 0, align: 'left' });
+      txt(ctx, '=' + result, L.x + 26 + (verb.length + 0.6) * 8, y + 8, 8, '#ffffff', { outline: 0, align: 'left' });
+    });
+    if (b.welcome) {
+      const a = clamp(Math.min(b.welcome.t / 0.3, (3.5 - b.welcome.t) / 0.5), 0, 1);
+      ctx.globalAlpha = a;
+      txt(ctx, `HI ${b.welcome.name.toUpperCase()}`, L.x + L.w / 2, L.y - 22, 9, '#ffd34a', { outline: 3 });
+      txt(ctx, 'TAP LIKE TO ATTACK', L.x + L.w / 2, L.y - 9, 8, '#ff9fd0', { outline: 3 });
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ---- randonaut readouts: quantum-lock coordinates, claim race, timers
+  drawRandonaut(ctx, b, th, time) {
+    const r = b.rando;
+    const ev = r.ev;
+    if (!ev || b.cine) return;
+    if (r.phase === 'scan') {
+      const jitter = (n) => String(Math.floor(n + (Math.random() - 0.5) * 400 * clamp(r.t / 2.6, 0, 1))).padStart(3, '0');
+      txt(ctx, 'QUANTUM LOCK', ev.x, ev.y - 54, 10, '#7df9ff', { outline: 3 });
+      txt(ctx, `X${jitter(ev.x)} Y${jitter(ev.y)}`, ev.x, ev.y - 38, 9, '#ffffff', { outline: 3, live: true });
+      return;
+    }
+    if (r.phase !== 'live') return;
+    const secs = Math.max(0, Math.ceil(ev.life));
+    if (ev.kind === 'attractor') {
+      txt(ctx, `ATTRACTOR ${secs}s`, ev.x, ev.y - 82, 10, '#ffd34a', { outline: 3, live: true });
+      txt(ctx, `TAP LIKES TO CLAIM`, ev.x, ev.y - 68, 8, '#ffffff', { outline: 3 });
+      txt(ctx, `${Math.min(ev.claim.A, b.w.randonaut.claimLikes)}`, ev.x - 30, ev.y + 82, 10, th.A.c1, { outline: 3, live: true });
+      txt(ctx, `${Math.min(ev.claim.B, b.w.randonaut.claimLikes)}`, ev.x + 30, ev.y + 82, 10, th.B.c1, { outline: 3, live: true });
+      txt(ctx, `/${b.w.randonaut.claimLikes}`, ev.x, ev.y + 96, 8, 'rgba(255,255,255,0.7)', { outline: 3 });
+    } else if (ev.kind === 'void') {
+      txt(ctx, `VOID ${secs}s`, ev.x, ev.y - 96, 10, '#d36bff', { outline: 3, live: true });
+    } else {
+      const it = INTENTIONS[ev.theme];
+      const s = `ANOMALY: ${it.label} ${secs}s`;
+      const pw = textWidth(ctx, s, `10px ${PIX}`) + 20;
+      roundRectPath(ctx, W / 2 - pw / 2, 266, pw, 18, 9);
+      ctx.fillStyle = rgba(it.color, 0.25 + 0.1 * Math.sin(time * 6));
+      ctx.fill();
+      txt(ctx, s, W / 2, 275.5, 10, it.color, { outline: 0, live: true });
     }
   }
 

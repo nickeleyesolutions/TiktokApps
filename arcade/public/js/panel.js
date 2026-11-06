@@ -130,6 +130,10 @@ export function buildPanel(root, api) {
         api.cmd({ type: 'forceGate', team: 'B' });
         setTimeout(() => api.mock({ kind: 'gift', gift: 'galaxy', team: 'A', n: 1 }), 1500);
       }, 'g'),
+      btn('Randonaut: attractor', () => api.cmd({ type: 'randonaut', kind: 'attractor' })),
+      btn('Randonaut: void', () => api.cmd({ type: 'randonaut', kind: 'void' })),
+      btn('Randonaut: anomaly', () => api.cmd({ type: 'randonaut', kind: 'anomaly' })),
+      btn('Chat votes FIRE x5', () => { for (let i = 0; i < 5; i++) api.mock({ kind: 'chat', team: null, text: 'fire' }); }),
       btn('Rift: like storm', () => api.cmd({ type: 'openRift', kind: 'like' })),
       btn('Rift: gift rush', () => api.cmd({ type: 'openRift', kind: 'gift' })),
       btn('Rift: unity call', () => api.cmd({ type: 'openRift', kind: 'chat' })),

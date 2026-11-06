@@ -62,7 +62,14 @@ app.get('/api/assets', (_req, res) => {
   }
   res.json(files);
 });
-app.get('/api/health', (_req, res) => res.json({ ok: true, bridge: bridge.state, recording: recorder.active }));
+app.get('/api/health', (_req, res) =>
+  res.json({
+    ok: true,
+    bridge: bridge.state,
+    recording: recorder.active,
+    stage: lastStatus ? { fps: lastStatus.fps, res: lastStatus.res, cpuMs: lastStatus.perf && lastStatus.perf.total, quality: lastStatus.quality, round: lastStatus.round, dimension: lastStatus.dimension } : null,
+  })
+);
 
 const server = http.createServer(app);
 const io = new Server(server, { serveClient: true });
@@ -183,6 +190,9 @@ function handleOwnerCommand(evt) {
       break;
     case 'rift':
       stage({ type: 'openRift', kind: ['like', 'gift', 'chat', 'coin'].includes(rest[0]) ? rest[0] : 'like' });
+      break;
+    case 'anomaly':
+      stage({ type: 'randonaut', kind: ['attractor', 'void', 'anomaly'].includes(rest[0]) ? rest[0] : null });
       break;
     case 'ascend':
       stage({ type: 'ascend', delta: Number(rest[0]) || 1 });

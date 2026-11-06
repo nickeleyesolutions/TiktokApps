@@ -67,12 +67,18 @@ export class TikTokBridge extends EventEmitter {
     try {
       const st = await conn.connect();
       if (this.conn !== conn) return;
+      // The live check can report a stale room as live ("room not started").
+      // Only call it connected when TikTok's room info says the room is live (status 2).
+      const info = st && st.roomInfo && (st.roomInfo.data || st.roomInfo);
+      if (info && info.status !== undefined && info.status !== 2) throw Object.assign(new Error('room is not live (status ' + info.status + ')'), { name: 'UserOfflineError' });
+      if (info && info.message === 'room not started') throw Object.assign(new Error('room not started'), { name: 'UserOfflineError' });
       this.attempt = 0;
       this.setState({ status: 'connected', roomId: st && st.roomId ? String(st.roomId) : '', error: '' });
       console.log(`[tiktok] connected to @${this.username} room ${this.state.roomId}`);
     } catch (e) {
       if (this.conn !== conn) return;
-      const offline = e && /offline|not live|UserOffline/i.test(String(e.name) + String(e.message));
+      const offline = e && /offline|not live|not started|UserOffline/i.test(String(e.name) + String(e.message));
+      if (offline) conn.disconnect().catch(() => {});
       this.setState({ status: offline ? 'waiting-for-live' : 'error', error: String((e && e.message) || e).slice(0, 200) });
       console.warn(`[tiktok] connect failed (@${this.username}):`, this.state.error);
       this.scheduleReconnect(offline ? 30000 : 0);

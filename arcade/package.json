@@ -7,7 +7,9 @@
     "start": "node server.js",
     "dev": "node server.js --record",
     "build:demo": "node scripts/build-demo.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "live-test": "node scripts/live-test.mjs",
+    "find-live": "node scripts/find-live.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

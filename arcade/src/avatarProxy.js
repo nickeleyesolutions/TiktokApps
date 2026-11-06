@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const DEFAULT_HOSTS = ['tiktokcdn.com', 'tiktokcdn-us.com', 'tiktokcdn-eu.com', 'ibyteimg.com', 'byteimg.com', 'muscdn.com'];
+// seen in real LIVE payloads: p16/p19-common-sign.tiktokcdn(-us|-eu).com, sf16-passport-sg.ibytedtos.com
+const DEFAULT_HOSTS = ['tiktokcdn.com', 'tiktokcdn-us.com', 'tiktokcdn-eu.com', 'ibyteimg.com', 'byteimg.com', 'ibytedtos.com', 'muscdn.com'];
 
 export function createAvatarHandler(cacheDir) {
   const hosts = (process.env.AVATAR_HOSTS ? process.env.AVATAR_HOSTS.split(',') : DEFAULT_HOSTS).map((h) => h.trim()).filter(Boolean);

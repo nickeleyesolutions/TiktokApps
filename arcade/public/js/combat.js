@@ -17,6 +17,7 @@
 import { W, TAU, clamp, rand, damp, easeOutBack, cleanName, speakable, fmt, rgba } from './util.js';
 import { avatarImage, pixelAvatar, unitSprite } from './sprites.js';
 import { HyperCube, axisColors } from './hyper.js';
+import { Randonaut } from './randonaut.js';
 
 // Dimension ladder. Index = level - 1.
 export const DIMENSIONS = [
@@ -141,6 +142,11 @@ export class Battle {
     this.rate = { like: 0, gift: 0, chat: 0, coin: 0 }; // smoothed per-second rates
     this.rateT = 1;
     this.cages = { A: new HyperCube(4), B: new HyperCube(4) };
+    this.rando = new Randonaut(this);
+    this.rando.schedule();
+    this.legendHit = { like: 0, chat: 0, side: 0, share: 0, follow: 0, gift: 0 };
+    this.welcome = null; // { name, t }
+    this.welcomeT = 0;
   }
 
   get w() {
@@ -683,10 +689,10 @@ export class Battle {
     t.stacks[k] = Math.min(this.w.stacks.max, t.stacks[k] + n);
   }
 
-  volley(t, x, y, n, dmg, src, spacing = 0.04) {
+  volley(t, x, y, n, dmg, src, spacing = 0.04, colorOverride = null) {
     const w = this.w;
     const e = this.teams[t.enemy];
-    const color = this.col(t.key).c1;
+    const color = colorOverride || this.col(t.key).c1;
     for (let i = 0; i < n; i++) {
       let target;
       if (this.boss && i % 3 === 0) target = { kind: 'boss' };
@@ -748,6 +754,17 @@ export class Battle {
       this.meteors.push({ sx: tx - t.dir * 240, sy: 140, tx, ty, t: 0, dur: 0.6, delay: i * 0.16, team: t.key, onCore: !u, dmg: w.mana.meteorDamage });
     }
     this.banner('METEOR', 'LIKES UNLEASHED', '#ff5fa8', { side: t.key, small: true });
+    this.sfx.play('meteor');
+  }
+
+  castMeteorSmall(t, n) {
+    const e = this.teams[t.enemy];
+    for (let i = 0; i < n; i++) {
+      const u = e.units.length ? e.units[Math.floor(Math.random() * e.units.length)] : null;
+      const tx = u ? u.x : e.core.x;
+      const ty = u ? u.y : e.core.y;
+      this.meteors.push({ sx: tx - t.dir * 240, sy: 140, tx, ty, t: 0, dur: 0.6, delay: i * 0.2, team: t.key, onCore: !u, dmg: this.w.mana.meteorDamage * 0.6 });
+    }
     this.sfx.play('meteor');
   }
 
@@ -955,6 +972,12 @@ export class Battle {
       case 'viewers':
         this.viewers = e.count;
         return;
+      case 'member':
+        if (this.w.welcome.enabled && this.time - this.welcomeT >= this.w.welcome.everySeconds) {
+          this.welcomeT = this.time;
+          this.welcome = { name: cleanName(e.user.name || e.user.uid, 14), t: 0 };
+        }
+        return;
     }
   }
 
@@ -967,6 +990,13 @@ export class Battle {
     if (w.chat.joinA.includes(first)) key = 'A';
     else if (w.chat.joinB.includes(first)) key = 'B';
     if (key && !rec.team) this.addEnergy(w.ascension.perJoin);
+    this.rando.onChat(e.text);
+    this.legendHit[key ? 'side' : 'chat'] = 1;
+    // any message enlists a newcomer on the underdog side (typing A/B picks a side instead)
+    if (!key && !rec.team && w.chat.autoJoinAny && this.phase === 'battle') {
+      this.addEnergy(w.ascension.perJoin);
+      this.join(rec, this.underdog());
+    }
     const team = rec.team || key;
     if (team) this.riftProgress(team, 'chat', 1);
     if (key) return this.join(rec, key);
@@ -976,10 +1006,20 @@ export class Battle {
   onLike(e) {
     const w = this.w;
     const rec = this.ensureUser(e.user);
+    if (!rec.team && w.likes.autoJoin && this.phase === 'battle') this.join(rec, this.underdog());
     const key = rec.team || this.underdog();
     const t = this.teams[key];
     const enemy = this.teams[t.enemy];
     t.mana += e.count;
+    this.legendHit.like = 1;
+    this.rando.onLike(key, e.count);
+    // LIKE = ATTACK: heart missiles from the liker toward the enemy
+    if (w.likes.attack && this.phase === 'battle' && !this.cine) {
+      const n = Math.min(w.likes.maxMissiles, Math.ceil(e.count / w.likes.perMissile));
+      const u = rec.unit && rec.unit.alive && rec.unit.slot >= 0 ? rec.unit : null;
+      const src = { team: key, rec, kind: 'like' };
+      this.volley(t, u ? u.x : t.core.x, u ? u.y : t.core.y, n, (e.count * w.likes.damagePerLike) / n, src, 0.05, '#ff5fa8');
+    }
     this.act.like += e.count;
     this.addEnergy(e.count * w.ascension.perLike);
     this.riftProgress(key, 'like', e.count);
@@ -1007,6 +1047,7 @@ export class Battle {
   onShare(e) {
     const rec = this.ensureUser(e.user);
     this.addEnergy(this.w.ascension.perShare);
+    this.legendHit.share = 1;
     const u = this.ensureFighter(rec);
     const t = this.teams[rec.team];
     if (u) {
@@ -1023,6 +1064,7 @@ export class Battle {
   onFollow(e) {
     const rec = this.ensureUser(e.user);
     rec.follower = true;
+    this.legendHit.follow = 1;
     const key = rec.team || this.underdog();
     this.addStack(this.teams[key], 'haste', 2);
     if (rec.unit) rec.unit.spriteKey = '';
@@ -1033,6 +1075,7 @@ export class Battle {
     const w = this.w;
     if (!e.delta || e.delta <= 0) return; // streak-end marker, nothing new was sent
     const rec = this.ensureUser(e.user);
+    this.legendHit.gift = 1;
     if (this.phase !== 'battle') {
       if (this.pendingGifts.length < 50) this.pendingGifts.push(e);
       return;
@@ -1132,6 +1175,9 @@ export class Battle {
       case 'heal':
         if (t) t.core.hp = t.core.max;
         break;
+      case 'randonaut':
+        if (this.phase === 'battle') this.rando.spawn(['attractor', 'void', 'anomaly'].includes(c.kind) ? c.kind : null);
+        break;
       case 'openRift':
         if (this.phase === 'battle') {
           const i = RIFTS.findIndex((r) => r.kind === c.kind);
@@ -1177,7 +1223,7 @@ export class Battle {
   update(dtReal) {
     const w = this.w;
     this.updateCinematic(dtReal);
-    let dt = dtReal * (this.cine ? 0.18 : 1);
+    let dt = dtReal * (this.cine ? 0.18 : 1) * this.rando.timeScale();
     if (this.hitstop > 0) {
       this.hitstop -= dtReal;
       dt = 0;
@@ -1213,6 +1259,9 @@ export class Battle {
     this.updateBounties(dt);
     this.updateAscension(dt);
     this.updateRift(dt);
+    this.rando.update(dt);
+    for (const k in this.legendHit) this.legendHit[k] = Math.max(0, this.legendHit[k] - dtReal * 2);
+    if (this.welcome && (this.welcome.t += dtReal) > 3.5) this.welcome = null;
 
     if (w.npc.enabled && (this.npcTimer -= dt) <= 0) {
       this.npcTimer = w.npc.checkSeconds;
@@ -1298,7 +1347,7 @@ export class Battle {
         this.volley(t, u.x, u.y, 2, w.seekers.damage * 1.5, { team: t.key, rec: u.rec, kind: 'elite' }, 0.08);
       }
     }
-    if (this.cine) return; // turn bars pause during cinematics
+    if (this.cine || this.rando.frozen(t.key)) return; // turn bars pause during cinematics and ICE
     const haste = (1 + soft(t.stacks.haste) * w.atb.hastePerStack + (u.elite > 0 ? 0.35 : 0)) * (u.rec && u.rec.sub ? w.subs.atbMul : 1) * DIM_ATB[this.asc.level - 1] * (t.buffs.hyper > 0 ? w.rifts.hyperMul : 1);
     u.atb += (dt * haste) / Math.max(0.5, w.atb.baseSeconds);
     if (u.atb >= 1) {
@@ -1378,6 +1427,7 @@ export class Battle {
       for (const u of t.units) this.drawUnit(ctx, t, u, th[k], S, time);
     }
     this.drawMeteors(ctx);
+    this.rando.drawWorld(ctx, th, time);
     this.proj.draw(ctx);
     this.fx.drawWorld(ctx);
     if (this.cine) this.drawCineWorld(ctx, S, th);
@@ -2134,6 +2184,7 @@ export class Battle {
       boss: this.boss ? { hp: Math.round(this.boss.hp), t: Math.ceil(this.boss.t) } : null,
       cine: this.cine ? this.cine.type : null,
       dimension: this.asc.level,
+      randonaut: this.rando.status(),
       energy: Math.round(this.asc.energy),
       rift: this.rift.phase === 'idle' ? { next: Math.ceil(this.rift.t) } : { phase: this.rift.phase, type: this.rift.type && this.rift.type.title, goal: this.rift.goal, A: Math.round(this.rift.prog.A), B: Math.round(this.rift.prog.B), t: Math.ceil(this.rift.t) },
     };

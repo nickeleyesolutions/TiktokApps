@@ -73,6 +73,21 @@ export class Projectiles {
     return o;
   }
 
+  // VOID anomaly: every projectile inside the circle is swallowed.
+  absorb(x, y, r, fx) {
+    const L = this.list;
+    for (let i = L.length - 1; i >= 0; i--) {
+      const o = L[i];
+      if (o.age < 0) continue;
+      const dx = o.x - x;
+      const dy = o.y - y;
+      if (dx * dx + dy * dy < r * r) {
+        if (fx && fx.p.length < 2500) fx.particle(o.x, o.y, -dx * 2, -dy * 2, 0.3, 3, '#d36bff', 0, 6);
+        this.kill(i);
+      }
+    }
+  }
+
   kill(i) {
     const o = this.list[i];
     this.free.push(o);

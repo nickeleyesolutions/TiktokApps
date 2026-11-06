@@ -95,7 +95,13 @@ export const DEFAULT_WEIGHTS = {
   rifts: { enabled: true, firstDelay: 35, everySeconds: 75, warnSeconds: 8, durationSeconds: 30, buffSeconds: 25, goalScale: 0.7, hyperMul: 1.6, prismReduce: 0.3, phaseMul: 1.5 },
   hyper: { intensity: 0.9, prism: 1, cubes: true, orbits: true },
   npc: { enabled: true, minA: 3, minB: 6, checkSeconds: 3, perCheck: 2, hp: 14, damage: 4 },
-  chat: { joinA: ['a', '1', 'left'], joinB: ['b', '2', 'right'], allowSwitch: false, rallyCooldown: 2 },
+  chat: { joinA: ['a', '1', 'left'], joinB: ['b', '2', 'right'], allowSwitch: false, rallyCooldown: 2, autoJoinAny: true },
+  // LIKE = ATTACK: a like enlists the viewer (underdog side) and fires heart missiles
+  likes: { autoJoin: true, attack: true, perMissile: 5, damagePerLike: 0.8, maxMissiles: 4 },
+  welcome: { enabled: true, everySeconds: 4 }, // greet people entering the room
+  legend: { enabled: true },
+  // Surprise anomalies at random times and places; chat steers the theme.
+  randonaut: { enabled: true, meanSeconds: 55, minSeconds: 30, lifeSeconds: 18, claimLikes: 60 },
   boss: { hp: 1800, seconds: 60, fireEvery: 2.2 },
   guide: { enabled: true, oracle: true, cardSeconds: 4, everySeconds: 12, showSeconds: 4 },
   round: { intermissionSeconds: 8 },
@@ -195,6 +201,18 @@ export const SCHEMA = [
   { group: 'Dimensions & rifts', path: 'rifts.durationSeconds', label: 'Rift race length (s)', min: 10, max: 90, step: 1 },
   { group: 'Dimensions & rifts', path: 'rifts.buffSeconds', label: 'Rift buff length (s)', min: 5, max: 90, step: 1 },
   { group: 'Dimensions & rifts', path: 'rifts.goalScale', label: 'Rift goal difficulty', min: 0.2, max: 2, step: 0.05 },
+
+  { group: 'Onboarding', path: 'legend.enabled', label: 'How-to-play legend', type: 'toggle' },
+  { group: 'Onboarding', path: 'likes.autoJoin', label: 'A like enlists the viewer', type: 'toggle' },
+  { group: 'Onboarding', path: 'likes.attack', label: 'Likes fire heart missiles', type: 'toggle' },
+  { group: 'Onboarding', path: 'likes.damagePerLike', label: 'Damage per like', min: 0, max: 5, step: 0.1 },
+  { group: 'Onboarding', path: 'chat.autoJoinAny', label: 'Any chat message enlists', type: 'toggle' },
+  { group: 'Onboarding', path: 'welcome.enabled', label: 'Welcome people entering', type: 'toggle' },
+  { group: 'Randonaut', path: 'randonaut.enabled', label: 'Randonaut anomalies', type: 'toggle' },
+  { group: 'Randonaut', path: 'randonaut.meanSeconds', label: 'Average gap (s)', min: 15, max: 300, step: 5 },
+  { group: 'Randonaut', path: 'randonaut.minSeconds', label: 'Minimum gap (s)', min: 10, max: 120, step: 5 },
+  { group: 'Randonaut', path: 'randonaut.lifeSeconds', label: 'Event length (s)', min: 6, max: 60, step: 1 },
+  { group: 'Randonaut', path: 'randonaut.claimLikes', label: 'Likes to claim an attractor', min: 10, max: 2000, step: 10 },
 
   { group: 'Devil side NPCs', path: 'npc.enabled', label: 'Auto-spawner on', type: 'toggle' },
   { group: 'Devil side NPCs', path: 'npc.minA', label: 'Min units left side', min: 0, max: 12, step: 1 },

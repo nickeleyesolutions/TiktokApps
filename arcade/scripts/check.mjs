@@ -182,6 +182,43 @@ const theme = THEMES['azure-inferno'];
     assert.equal(b.rift.phase, 'result');
     assert.equal(b.rift.winner, null);
   });
+  test('a like enlists the viewer on the underdog side and fires heart missiles', () => {
+    const before = b.proj.list.length;
+    send('like', { user: user('l1'), count: 20 });
+    const rec = b.users.get('l1');
+    assert.ok(rec.team === 'A' || rec.team === 'B');
+    assert.ok(b.proj.list.length > before, 'heart missiles launched');
+  });
+  test('any chat message enlists, typing A/B picks the side', () => {
+    send('chat', { user: user('m1'), content: 'hello everyone', userIdentity: {} });
+    assert.ok(b.users.get('m1').team);
+    send('chat', { user: user('m2'), content: 'b', userIdentity: {} });
+    assert.equal(b.users.get('m2').team, 'B');
+  });
+  test('randonaut attractor: first team to the like goal claims it', () => {
+    b.rando.spawn('attractor');
+    b.rando.update(3); // finish the quantum-lock scan
+    assert.equal(b.rando.phase, 'live');
+    const goal = weights.randonaut.claimLikes;
+    b.rando.onLike('B', goal);
+    assert.equal(b.rando.phase, 'idle');
+  });
+  test('randonaut void swallows projectiles inside it', () => {
+    b.rando.spawn('void');
+    b.rando.update(3);
+    const ev = b.rando.ev;
+    const o = b.proj.seeker(ev.x, ev.y, 0, { kind: 'core', team: 'A' }, 1, { team: 'B' }, '#fff', {});
+    assert.ok(o);
+    b.rando.update(0.016);
+    assert.ok(!b.proj.list.includes(o) || o.x !== ev.x, 'seeker absorbed');
+    b.rando.end(null);
+  });
+  test('chat intentions steer the anomaly theme', () => {
+    for (let i = 0; i < 4; i++) b.rando.onChat('#ice please');
+    b.rando.spawn('anomaly');
+    assert.equal(b.rando.ev.theme, 'ice');
+    b.rando.end(null);
+  });
   test('killing a bounty target pays the other team', () => {
     const victim = b.users.get('c2').unit;
     b.teams.B.bounty = victim;
