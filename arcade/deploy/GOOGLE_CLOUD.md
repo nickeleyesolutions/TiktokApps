@@ -54,9 +54,9 @@ chat and send a cheap gift to your own LIVE to check the game reacts.
    trial unless you upgrade to a paid account.
 3. In the console: Billing > Budgets & alerts > create a budget (for example
    $50/month) with email alerts at 50%, 90% and 100%.
-4. GitHub > Settings > Developer settings > Fine-grained tokens: create a
-   token with read-only "Contents" access to `nickeleyesolutions/TiktokApps`,
-   expiring in 7 days. Keep it in your password manager.
+4. GitHub: nothing to do while the repository is public. If you make it
+   private, create a fine-grained token with read-only "Contents" access to
+   `nickeleyesolutions/TiktokApps` for cloning.
 5. TikTok, on desktop: open LIVE Producer (https://livecenter.tiktok.com/producer)
    while logged in. If it offers a Server URL and Stream Key after you set a
    title and category, you have key access. If it does not, stop here and tell
@@ -91,11 +91,15 @@ gcloud compute instances create arena --zone=us-central1-a --machine-type=e2-sta
 ```bash
 gcloud compute ssh arena --zone=us-central1-a
 ```
-On the VM:
+On the VM (the Debian image has no git, so install it first; harmless on Ubuntu):
+```bash
+sudo apt-get update && sudo apt-get install -y git
+```
 ```bash
 git clone -b claude/confident-pascal-8nd2c3 https://github.com/nickeleyesolutions/TiktokApps.git
 ```
-(username: your GitHub username, password: the token from Phase 1)
+The repository is public, so no login is asked. (If it is ever made private,
+use your GitHub username and a read-only token as the password.)
 ```bash
 sudo bash TiktokApps/arcade/deploy/gcp-setup.sh
 ```

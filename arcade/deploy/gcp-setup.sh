@@ -5,6 +5,13 @@
 # copies this checkout to /opt/arena; installs the two systemd services.
 set -euo pipefail
 REPO_DIR=$(cd "$(dirname "$0")/../.." && pwd)
+. /etc/os-release
+echo "== Arcade Arena setup on $PRETTY_NAME"
+case "$ID" in
+  ubuntu) ;;
+  debian) echo "   Debian works too (same packages); Ubuntu 24.04 is the tested system." ;;
+  *) echo "   Untested system ($ID). Ubuntu 24.04 is recommended."; sleep 3 ;;
+esac
 
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y curl git rsync ca-certificates xvfb pulseaudio ffmpeg fonts-dejavu-core
