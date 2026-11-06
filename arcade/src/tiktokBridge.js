@@ -89,8 +89,10 @@ export class TikTokBridge extends EventEmitter {
   scheduleReconnect(minDelay = 0) {
     if (!this.wanted || this.timer) return;
     this.attempt++;
-    const base = Math.min(60000, 2000 * Math.pow(2, this.attempt - 1));
-    const delay = Math.max(minDelay, base) * (0.7 + Math.random() * 0.6);
+    // offline: a steady ~30 s check, so going live is picked up quickly;
+    // errors: exponential backoff up to 60 s
+    const base = minDelay > 0 ? minDelay : Math.min(60000, 2000 * Math.pow(2, this.attempt - 1));
+    const delay = base * (0.85 + Math.random() * 0.3);
     this.setState({ status: this.state.status === 'waiting-for-live' ? 'waiting-for-live' : 'reconnecting', attempt: this.attempt, retryInMs: Math.round(delay) });
     this.timer = setTimeout(() => {
       this.timer = null;

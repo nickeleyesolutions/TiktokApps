@@ -144,6 +144,17 @@ for you to go live.
    `owners.usernames` in `/opt/arena/arcade/config/weights.json`).
 5. End: director **Stop**, then end the LIVE in TikTok. Optionally stop the VM.
 
+## Rehearse the broadcast without TikTok
+
+Streams to a stand-in receiver on the VM for 25 seconds and reports the game
+fps, encoder fps and audio:
+
+```bash
+bash TiktokApps/arcade/deploy/selftest.sh
+```
+(`RES=720 bash ...` for 720p.) Look for `RESULT: broadcast pipeline works`,
+a game fps of 28 or more, and an audio level well above -91 dB.
+
 ## Getting updates
 
 When I push changes, run this on the VM. Your settings, tuned weights, hall of
