@@ -265,6 +265,7 @@ let fpsT = 0;
 let fps = 0;
 let postWasOn = null;
 let musicT = 0;
+let audioRetry = 1;
 
 // Dimension layer: shader field + floating hypercube, between backdrop and battle.
 function drawHyper() {
@@ -401,6 +402,12 @@ function frame(now) {
   }
   time += dt;
   autoQuality(dt);
+  // capture apps (LIVE Studio Link source, OBS) may start the page muted;
+  // keep asking for sound until the browser allows it
+  if (!sfx.ready && (audioRetry -= dt) <= 0) {
+    audioRetry = 2;
+    sfx.ensure();
+  }
   if ((musicT -= dt) <= 0) {
     musicT = 0.25;
     const A = battle.teams.A;

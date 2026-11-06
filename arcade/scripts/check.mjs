@@ -219,6 +219,22 @@ const theme = THEMES['azure-inferno'];
     assert.equal(b.rando.ev.theme, 'ice');
     b.rando.end(null);
   });
+  test('moderation hides blocked names', () => {
+    assert.equal(b.safeName('NiceName'), 'NiceName');
+    assert.equal(b.safeName('xX_f.u.c.k_Xx'), weights.moderation.replaceName);
+  });
+  test('kill streaks: second KO within the window is a double kill', () => {
+    const killer = b.ensureUser({ id: 'k1', uid: 'killer', name: 'Killer' });
+    let called = 0;
+    const orig = b.killCallout.bind(b);
+    b.killCallout = (...a) => { called = a[2]; return orig(...a); };
+    for (const id of ['v1', 'v2']) {
+      send('chat', { user: user(id), content: 'b', userIdentity: {} });
+      b.koUnit(b.users.get(id).unit, { team: 'A', rec: killer, kind: 'bolt' });
+    }
+    assert.equal(called, 2);
+    b.killCallout = orig;
+  });
   test('killing a bounty target pays the other team', () => {
     const victim = b.users.get('c2').unit;
     b.teams.B.bounty = victim;

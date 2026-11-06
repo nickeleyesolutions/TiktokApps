@@ -100,6 +100,11 @@ export const DEFAULT_WEIGHTS = {
   likes: { autoJoin: true, attack: true, perMissile: 5, damagePerLike: 0.8, maxMissiles: 4 },
   welcome: { enabled: true, everySeconds: 4 }, // greet people entering the room
   legend: { enabled: true },
+  // avatars drift around their own half instead of standing in rows
+  units: { roam: true, roamSpeed: 55, roamRadius: 1 },
+  callouts: { enabled: true, window: 4 }, // DOUBLE / TRIPLE / MULTI KILL, RAMPAGE
+  // names containing any of these (case-insensitive) show as VIEWER and are never spoken
+  moderation: { blockedWords: ['fuck', 'shit', 'bitch', 'cunt', 'nigg', 'fag', 'retard', 'whore', 'slut', 'pussy', 'nazi', 'hitler', 'rape'], replaceName: 'VIEWER' },
   // Surprise anomalies at random times and places; chat steers the theme.
   randonaut: { enabled: true, meanSeconds: 55, minSeconds: 30, lifeSeconds: 18, claimLikes: 60 },
   boss: { hp: 1800, seconds: 60, fireEvery: 2.2 },
@@ -203,6 +208,9 @@ export const SCHEMA = [
   { group: 'Dimensions & rifts', path: 'rifts.goalScale', label: 'Rift goal difficulty', min: 0.2, max: 2, step: 0.05 },
 
   { group: 'Onboarding', path: 'legend.enabled', label: 'How-to-play legend', type: 'toggle' },
+  { group: 'Onboarding', path: 'units.roam', label: 'Avatars roam their side', type: 'toggle' },
+  { group: 'Onboarding', path: 'units.roamSpeed', label: 'Roam speed', min: 10, max: 160, step: 5 },
+  { group: 'Onboarding', path: 'callouts.enabled', label: 'Kill streak callouts', type: 'toggle' },
   { group: 'Onboarding', path: 'likes.autoJoin', label: 'A like enlists the viewer', type: 'toggle' },
   { group: 'Onboarding', path: 'likes.attack', label: 'Likes fire heart missiles', type: 'toggle' },
   { group: 'Onboarding', path: 'likes.damagePerLike', label: 'Damage per like', min: 0, max: 5, step: 0.1 },

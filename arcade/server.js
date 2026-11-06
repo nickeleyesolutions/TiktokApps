@@ -37,6 +37,12 @@ const ASSET_DIR = path.join(ROOT, 'public', 'assets');
 const HALL_FILE = path.join(ROOT, 'data', 'hall.json');
 
 const weights = new WeightsStore(path.join(ROOT, 'config', 'weights.json'));
+let VERSION = 'dev';
+try {
+  VERSION = fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf8').trim();
+} catch {
+  /* written by deploy/update.sh */
+}
 // BROADCAST=1 (cloud VM): the director's Go live panel can start the stream.
 const broadcaster = process.env.BROADCAST === '1' ? new Broadcaster({ root: ROOT, port: PORT }) : null;
 const bridge = new TikTokBridge({ signApiKey: process.env.SIGN_API_KEY });
@@ -68,6 +74,7 @@ app.get('/api/assets', (_req, res) => {
 app.get('/api/health', (_req, res) =>
   res.json({
     ok: true,
+    version: VERSION,
     bridge: bridge.state,
     recording: recorder.active,
     broadcast: broadcaster ? { status: broadcaster.state.status, fps: broadcaster.state.fps, bitrate: broadcaster.state.bitrate, speed: broadcaster.state.speed, res: broadcaster.state.res } : 'disabled',

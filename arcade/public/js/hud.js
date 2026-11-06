@@ -16,11 +16,11 @@ import { INTENTIONS } from './randonaut.js';
 // lower-left chat zone and the right-hand buttons (approximate, see drawSafeZones).
 const ORACLE_SLOTS = [
   { x: 360, y: 324, w: 560 },
-  { x: 340, y: 846, w: 290 },
+  { x: 290, y: 840, w: 260 },
 ];
 
 // Legend panel: bottom right, clear of TikTok's chat (left) and buttons (right edge).
-const LEGEND = { x: 478, y: 880, w: 152 };
+const LEGEND = { x: 432, y: 892, w: 200 };
 const LEGEND_ROWS = [
   ['like', 'LIKE', 'ATTACK', '#ff5fa8'],
   ['chat', 'CHAT', 'JOIN IN', '#ffffff'],
@@ -216,7 +216,6 @@ export class HUD {
     txt(ctx, 'VS', cx, cy - 11, 8, 'rgba(255,255,255,0.75)', { outline: 0 });
     txt(ctx, DIMENSIONS[lvl - 1].roman, cx, cy + 4, lvl >= 4 ? 15 : 16, lvl >= 3 ? '#e7b6ff' : '#ffffff', { orb: true, outline: 0 });
     txt(ctx, 'R' + b.round, cx, cy + 16, 7, '#ffd34a', { outline: 0 });
-    if (lvl >= 2) txt(ctx, `D${DIMENSIONS[lvl - 1].roman} ${DIMENSIONS[lvl - 1].name}`, cx, 254, 8, '#e7b6ff', { outline: 3 });
   }
 
   // ---- rift countdown / race panel (top band). Returns true while visible.
@@ -238,7 +237,7 @@ export class HUD {
       const pulse = 1 + 0.25 * Math.max(0, (r.t % 1) - 0.6) / 0.4;
       txt(ctx, 'RIFT OPENING', 70, y + 18, 9, '#e7b6ff', { outline: 0, align: 'left' });
       txt(ctx, type.title, 70, y + 42, 22, '#ffffff', { orb: true, outline: 0, align: 'left' });
-      txt(ctx, `FIRST TO ${fmt(r.goal)} ${type.unit}: ${type.rewardName}`, 70, y + 66, 9, '#ffd34a', { outline: 0, align: 'left' });
+      txt(ctx, `FIRST TO ${fmt(r.goal)} ${type.unit}: ${type.rewardName}`, 70, y + 66, 11, '#ffd34a', { outline: 0, align: 'left' });
       ctx.save();
       ctx.translate(W - 92, y + h / 2);
       ctx.scale(pulse, pulse);
@@ -258,9 +257,10 @@ export class HUD {
         ctx.fillStyle = th[k].c1;
         const fw = bw * p;
         ctx.fillRect(right ? bx + bw - fw : bx, y + 30, fw, 14);
-        txt(ctx, `${fmt(Math.min(r.prog[k], r.goal))}/${fmt(r.goal)}`, right ? bx + bw - 6 : bx + 6, y + 38, 9, '#ffffff', { outline: 3, align: right ? 'right' : 'left', live: true });
+        txt(ctx, `${fmt(Math.min(r.prog[k], r.goal))}/${fmt(r.goal)}`, right ? bx + bw - 6 : bx + 6, y + 38, 11, '#ffffff', { outline: 3, align: right ? 'right' : 'left', live: true });
       }
-      txt(ctx, `FIRST TO ${fmt(r.goal)} ${type.unit} UNLOCKS ${type.rewardName}: ${type.rewardText}`, W / 2, y + 62, 9, '#ffd34a', { outline: 0 });
+      const line = `FIRST TO ${fmt(r.goal)} ${type.unit}: ${type.rewardName}`;
+      txt(ctx, line, W / 2, y + 62, Math.min(13, Math.floor(600 / line.length)), '#ffd34a', { outline: 0 });
     } else {
       const won = r.winner;
       txt(ctx, won ? `${type.rewardName} UNLOCKED` : 'RIFT COLLAPSED', W / 2, y + 32, 20, won ? th[won].c1 : '#9c98c8', { orb: true, outline: 0 });
@@ -335,7 +335,7 @@ export class HUD {
     const flip = Math.min(o.t / 0.3, (dur - o.t) / 0.3, 1);
     const sy = Math.max(0.02, Math.sin((Math.max(0, flip) * Math.PI) / 2));
     const card = o.card;
-    const hW = 58;
+    const hW = 74;
     ctx.save();
     ctx.translate(s.x, s.y);
     ctx.scale(1, sy);
@@ -349,16 +349,20 @@ export class HUD {
     // gem
     const gx = -s.w / 2 + 20;
     ctx.fillStyle = card.color;
-    ctx.fillRect(gx - 3, -12, 6, 24);
-    ctx.fillRect(gx - 7, -5, 14, 10);
+    ctx.fillRect(gx - 4, -16, 8, 32);
+    ctx.fillRect(gx - 9, -7, 18, 14);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(gx - 1.5, -6, 3, 4);
+    ctx.fillRect(gx - 2, -8, 4, 5);
     const tx = -s.w / 2 + 38;
     const maxW = s.w - 50;
-    txt(ctx, 'GIVE', tx, -12, 7, 'rgba(255,255,255,0.55)', { outline: 0, align: 'left' });
-    txt(ctx, fitText(ctx, card.give, maxW - 40, 13), tx + 34, -12, 13, '#ffffff', { outline: 0, align: 'left' });
-    txt(ctx, 'UNLOCK', tx, 12, 7, 'rgba(255,255,255,0.55)', { outline: 0, align: 'left' });
-    txt(ctx, fitText(ctx, card.unlock, maxW - 52, 11), tx + 46, 12, 11, card.color, { outline: 0, align: 'left' });
+    // Press Start 2P is monospaced (1 em per character): shrink long lines to fit, never cut them
+    const fit = (str, room, max) => Math.max(9, Math.min(max, Math.floor(room / Math.max(1, str.length))));
+    const gs = fit(card.give, maxW - 4, 17);
+    const us = fit(card.unlock, maxW - 4, 14);
+    txt(ctx, 'GIVE', tx, -24, 9, 'rgba(255,255,255,0.6)', { outline: 0, align: 'left' });
+    txt(ctx, card.give, tx, -8, gs, '#ffffff', { outline: 0, align: 'left' });
+    txt(ctx, 'UNLOCKS', tx, 12, 9, 'rgba(255,255,255,0.6)', { outline: 0, align: 'left' });
+    txt(ctx, card.unlock, tx, 27, us, card.color, { outline: 0, align: 'left' });
     ctx.restore();
     return slot === 0;
   }
@@ -370,21 +374,21 @@ export class HUD {
       const a = clamp(1 - (f.t - 3.5) / 1, 0, 1);
       if (a <= 0) continue;
       ctx.globalAlpha = a;
-      const s = fitText(ctx, f.text, 430, f.tier >= 3 ? 11 : 9);
-      const tw = textWidth(ctx, s, `${f.tier >= 3 ? 11 : 9}px ${PIX}`) + 16;
-      roundRectPath(ctx, W / 2 - tw / 2, y - 10, tw, 20, 6);
+      const s = fitText(ctx, f.text, 430, f.tier >= 3 ? 14 : 12);
+      const tw = textWidth(ctx, s, `${f.tier >= 3 ? 14 : 12}px ${PIX}`) + 16;
+      roundRectPath(ctx, W / 2 - tw / 2, y - 12, tw, 24, 6);
       ctx.fillStyle = 'rgba(6,4,16,0.7)';
       ctx.fill();
-      txt(ctx, s, W / 2, y + 1, f.tier >= 3 ? 11 : 9, f.color, { outline: 0 });
+      txt(ctx, s, W / 2, y + 1, f.tier >= 3 ? 14 : 12, f.color, { outline: 0 });
       ctx.globalAlpha = 1;
-      y += 22;
+      y += 26;
     }
   }
 
   // ---- legend: always-on "what do I do" panel. Rows flash when someone does it.
   drawLegend(ctx, b, time) {
     const L = LEGEND;
-    const rowH = 19;
+    const rowH = 26;
     const h = 22 + LEGEND_ROWS.length * rowH + 4;
     roundRectPath(ctx, L.x, L.y, L.w, h, 8);
     ctx.fillStyle = 'rgba(6,3,18,0.78)';
@@ -392,23 +396,23 @@ export class HUD {
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = holo(ctx, L.x, L.x + L.w, time, 0.8);
     ctx.stroke();
-    txt(ctx, 'HOW TO PLAY', L.x + L.w / 2, L.y + 12, 8, '#e7b6ff', { outline: 0 });
+    txt(ctx, 'HOW TO PLAY', L.x + L.w / 2, L.y + 13, 11, '#e7b6ff', { outline: 0 });
     LEGEND_ROWS.forEach(([key, verb, result, color], i) => {
-      const y = L.y + 24 + i * rowH;
+      const y = L.y + 26 + i * rowH;
       const hit = b.legendHit[key] || 0;
       if (hit > 0) {
         ctx.fillStyle = rgba(color, 0.25 * hit);
         ctx.fillRect(L.x + 3, y - 1, L.w - 6, rowH - 2);
       }
-      icon(ctx, key, L.x + 8, y + 3, 2, color);
-      txt(ctx, verb, L.x + 26, y + 8, 8, color, { outline: 0, align: 'left' });
-      txt(ctx, '=' + result, L.x + 26 + (verb.length + 0.6) * 8, y + 8, 8, '#ffffff', { outline: 0, align: 'left' });
+      icon(ctx, key, L.x + 7, y + 3, 3, color);
+      txt(ctx, verb, L.x + 32, y + 12, 11, color, { outline: 0, align: 'left' });
+      txt(ctx, '=' + result, L.x + 32 + (verb.length + 0.4) * 11, y + 12, 11, '#ffffff', { outline: 0, align: 'left' });
     });
     if (b.welcome) {
       const a = clamp(Math.min(b.welcome.t / 0.3, (3.5 - b.welcome.t) / 0.5), 0, 1);
       ctx.globalAlpha = a;
-      txt(ctx, `HI ${b.welcome.name.toUpperCase()}`, L.x + L.w / 2, L.y - 22, 9, '#ffd34a', { outline: 3 });
-      txt(ctx, 'TAP LIKE TO ATTACK', L.x + L.w / 2, L.y - 9, 8, '#ff9fd0', { outline: 3 });
+      txt(ctx, `HI ${b.welcome.name.toUpperCase()}`, L.x + L.w / 2, L.y - 30, 13, '#ffd34a', { outline: 4 });
+      txt(ctx, 'TAP LIKE TO ATTACK', L.x + L.w / 2, L.y - 12, 11, '#ff9fd0', { outline: 4 });
       ctx.globalAlpha = 1;
     }
   }
@@ -421,17 +425,17 @@ export class HUD {
     if (r.phase === 'scan') {
       const jitter = (n) => String(Math.floor(n + (Math.random() - 0.5) * 400 * clamp(r.t / 2.6, 0, 1))).padStart(3, '0');
       txt(ctx, 'QUANTUM LOCK', ev.x, ev.y - 54, 10, '#7df9ff', { outline: 3 });
-      txt(ctx, `X${jitter(ev.x)} Y${jitter(ev.y)}`, ev.x, ev.y - 38, 9, '#ffffff', { outline: 3, live: true });
+      txt(ctx, `X${jitter(ev.x)} Y${jitter(ev.y)}`, ev.x, ev.y - 36, 11, '#ffffff', { outline: 3, live: true });
       return;
     }
     if (r.phase !== 'live') return;
     const secs = Math.max(0, Math.ceil(ev.life));
     if (ev.kind === 'attractor') {
       txt(ctx, `ATTRACTOR ${secs}s`, ev.x, ev.y - 82, 10, '#ffd34a', { outline: 3, live: true });
-      txt(ctx, `TAP LIKES TO CLAIM`, ev.x, ev.y - 68, 8, '#ffffff', { outline: 3 });
+      txt(ctx, `TAP LIKES TO CLAIM`, ev.x, ev.y - 66, 11, '#ffffff', { outline: 3 });
       txt(ctx, `${Math.min(ev.claim.A, b.w.randonaut.claimLikes)}`, ev.x - 30, ev.y + 82, 10, th.A.c1, { outline: 3, live: true });
       txt(ctx, `${Math.min(ev.claim.B, b.w.randonaut.claimLikes)}`, ev.x + 30, ev.y + 82, 10, th.B.c1, { outline: 3, live: true });
-      txt(ctx, `/${b.w.randonaut.claimLikes}`, ev.x, ev.y + 96, 8, 'rgba(255,255,255,0.7)', { outline: 3 });
+      txt(ctx, `/${b.w.randonaut.claimLikes}`, ev.x, ev.y + 98, 10, 'rgba(255,255,255,0.75)', { outline: 3 });
     } else if (ev.kind === 'void') {
       txt(ctx, `VOID ${secs}s`, ev.x, ev.y - 96, 10, '#d36bff', { outline: 3, live: true });
     } else {
@@ -460,15 +464,15 @@ export class HUD {
         const secs = t.buffs[key];
         if (!(secs > 0)) continue;
         const s = `${label} ${Math.ceil(secs)}s`;
-        const bw = textWidth(ctx, s, `9px ${PIX}`) + 14;
+        const bw = textWidth(ctx, s, `11px ${PIX}`) + 14;
         const bx = right ? x - bw : x;
-        roundRectPath(ctx, bx, 266, bw, 16, 8);
+        roundRectPath(ctx, bx, 266, bw, 20, 9);
         ctx.fillStyle = 'rgba(8,3,20,0.85)';
         ctx.fill();
         ctx.strokeStyle = secs < 5 && Math.sin(time * 12) > 0 ? '#ffffff' : color;
         ctx.lineWidth = 1.5;
         ctx.stroke();
-        txt(ctx, s, bx + bw / 2, 274.5, 9, color, { outline: 0, live: true });
+        txt(ctx, s, bx + bw / 2, 276.5, 11, color, { outline: 0, live: true });
         x = right ? bx - 6 : bx + bw + 6;
       }
     }
@@ -532,7 +536,7 @@ export class HUD {
       ];
       rows.forEach((r, i) => {
         const yy = 202 + i * 14;
-        txt(ctx, r.label, lx, yy + 4, 9, r.label === 'READY' || r.label === 'BRK!' ? '#ffffff' : 'rgba(255,255,255,0.75)', { align: right ? 'right' : 'left', outline: 0 });
+        txt(ctx, r.label, lx, yy + 4, 10, r.label === 'READY' || r.label === 'BRK!' ? '#ffffff' : 'rgba(255,255,255,0.75)', { align: right ? 'right' : 'left', outline: 0 });
         gauge(ctx, gx0, yy, gw0, 8, r.ratio, r.color, right);
       });
     }
@@ -558,34 +562,36 @@ export class HUD {
       ctx.fillStyle = th[k].c1;
       ctx.fillRect(ux + 2, y - 6, 6, 5);
       ctx.fillRect(ux, y, 10, 6);
-      txt(ctx, label, ux + 16, y + 1, 10, '#ffffff', { align: 'left', outline: 3, live: true });
+      txt(ctx, label, ux + 16, y + 1, 12, '#ffffff', { align: 'left', outline: 3, live: true });
       x = right ? ux - 10 : ux + lw + 10;
       for (const [key, short, color] of defs) {
         const n = t.stacks[key];
         if (n <= 0) continue;
         const s = `${short}x${n}`;
-        const bw = textWidth(ctx, s, `9px ${PIX}`) + 12;
+        const bw = textWidth(ctx, s, `11px ${PIX}`) + 12;
         const bx = right ? x - bw : x;
-        roundRectPath(ctx, bx, y - 8, bw, 17, 4);
+        if (right ? bx < 384 : bx + bw > 336) break; // keep the middle clear
+        roundRectPath(ctx, bx, y - 10, bw, 21, 4);
         ctx.fillStyle = 'rgba(8,6,20,0.85)';
         ctx.fill();
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.5;
         ctx.stroke();
-        txt(ctx, s, bx + bw / 2, y + 1, 9, color, { outline: 0, live: true });
+        txt(ctx, s, bx + bw / 2, y + 1, 11, color, { outline: 0, live: true });
         x = right ? bx - 6 : bx + bw + 6;
       }
       if (b.underdogMul(k) > 1) {
         const s = `UNDERDOG +${Math.round((b.w.underdog.mul - 1) * 100)}%`;
-        const bw = textWidth(ctx, s, `9px ${PIX}`) + 12;
+        const bw = textWidth(ctx, s, `11px ${PIX}`) + 12;
         const bx = right ? x - bw : x;
-        roundRectPath(ctx, bx, y - 8, bw, 17, 4);
+        if (right ? bx < 384 : bx + bw > 336) continue; // no room left: skip this team's badge
+        roundRectPath(ctx, bx, y - 10, bw, 21, 4);
         ctx.fillStyle = 'rgba(125,255,154,0.18)';
         ctx.fill();
         ctx.strokeStyle = '#7dff9a';
         ctx.lineWidth = 1.5;
         ctx.stroke();
-        txt(ctx, s, bx + bw / 2, y + 1, 9, '#7dff9a', { outline: 0 });
+        txt(ctx, s, bx + bw / 2, y + 1, 11, '#7dff9a', { outline: 0 });
       }
     }
   }
@@ -595,7 +601,7 @@ export class HUD {
       for (const c of b.commanders[k]) {
         const p = commanderPos(k, c.i);
         const r = c.i === 0 ? 20 : 16;
-        txt(ctx, fmt(c.rec.coins), p.x, p.y + r + 9, 8, '#ffd34a', { outline: 3, live: true });
+        txt(ctx, fmt(c.rec.coins), p.x, p.y + r + 10, 10, '#ffd34a', { outline: 3, live: true });
       }
     }
   }
@@ -607,7 +613,7 @@ export class HUD {
         if (show <= 0 || u.npc) continue;
         const r = u.elite > 0 ? ELITE_R : UNIT_R;
         ctx.globalAlpha = show;
-        txt(ctx, cleanName(u.name, 9).toUpperCase(), u.x, u.y + r + 20, 9, u.elite > 0 ? '#ffd34a' : '#ffffff', { outline: 3 });
+        txt(ctx, cleanName(u.name, 9).toUpperCase(), u.x, u.y + r + 21, 11, u.elite > 0 ? '#ffd34a' : '#ffffff', { outline: 3 });
         ctx.globalAlpha = 1;
       }
     }
@@ -702,14 +708,14 @@ export class HUD {
       const a = clamp(1 - (f.t - 3.5) / 1, 0, 1);
       if (a <= 0) continue;
       ctx.globalAlpha = a;
-      const s = fitText(ctx, f.text, 430, f.tier >= 3 ? 11 : 9);
-      const tw = textWidth(ctx, s, `${f.tier >= 3 ? 11 : 9}px ${PIX}`) + 16;
-      roundRectPath(ctx, W / 2 - tw / 2, y - 10, tw, 20, 6);
+      const s = fitText(ctx, f.text, 430, f.tier >= 3 ? 14 : 12);
+      const tw = textWidth(ctx, s, `${f.tier >= 3 ? 14 : 12}px ${PIX}`) + 16;
+      roundRectPath(ctx, W / 2 - tw / 2, y - 12, tw, 24, 6);
       ctx.fillStyle = 'rgba(6,4,16,0.7)';
       ctx.fill();
-      txt(ctx, s, W / 2, y + 1, f.tier >= 3 ? 11 : 9, f.color, { outline: 0 });
+      txt(ctx, s, W / 2, y + 1, f.tier >= 3 ? 14 : 12, f.color, { outline: 0 });
       ctx.globalAlpha = 1;
-      y += 22;
+      y += 26;
     }
   }
 
@@ -734,7 +740,10 @@ export class HUD {
       txt(ctx, t, 0, 0, size, '#ffffff', { orb: true, outline: Math.max(3, size * 0.14), outlineColor: '#05030c' });
       ctx.globalAlpha = a * 0.92;
       txt(ctx, t, 0, 0, size, bn.color, { orb: true, outline: 0 });
-      if (bn.sub) txt(ctx, fitText(ctx, bn.sub, maxW, 10), 0, size * 0.62 + 8, 10, '#ffffff', { outline: 3 });
+      if (bn.sub) {
+        const ss = Math.max(10, Math.min(15, Math.floor(maxW / Math.max(1, bn.sub.length))));
+        txt(ctx, bn.sub, 0, size * 0.62 + 12, ss, '#ffffff', { outline: 4 });
+      }
       ctx.restore();
     }
   }

@@ -188,7 +188,7 @@ export class Battle {
   ensureUser(u) {
     let r = this.users.get(u.id);
     if (!r) {
-      r = { id: u.id, uid: u.uid, name: cleanName(u.name || u.uid), avatar: u.avatar || '', team: null, damage: 0, rd: 0, coins: 0, unit: null, lastRally: -9, koAt: -99, sub: !!u.isSub, follower: !!u.isFollower };
+      r = { id: u.id, uid: u.uid, name: this.safeName(u.name || u.uid), avatar: u.avatar || '', team: null, damage: 0, rd: 0, coins: 0, unit: null, lastRally: -9, koAt: -99, sub: !!u.isSub, follower: !!u.isFollower };
       this.users.set(u.id, r);
       if (this.users.size > 6000) this.pruneUsers();
     } else {
@@ -197,6 +197,14 @@ export class Battle {
       if (u.isFollower) r.follower = true;
     }
     return r;
+  }
+
+  // moderation: display names with blocked words never reach the screen or the announcer
+  safeName(name) {
+    const m = this.w.moderation || {};
+    const n = cleanName(name);
+    const low = n.toLowerCase().replace(/[^a-z]/g, '');
+    return (m.blockedWords || []).some((wd) => wd && low.includes(String(wd).toLowerCase())) ? m.replaceName || 'VIEWER' : n;
   }
 
   pruneUsers() {
@@ -289,8 +297,12 @@ export class Battle {
     t.slots[slot] = u;
     t.units.push(u);
     const p = slotPos(t.key, slot);
-    if (u.x < 0 || u.x > W) u.y = p.y;
-    this.fx.ring(p.x, p.y, this.col(t.key).c1, 4, 42, 0.45, 3);
+    if (this.w.units.roam) {
+      // appear inside the team's zone (with the warp ring) instead of walking in
+      u.x = t.key === 'A' ? 170 + Math.random() * 150 : W - 170 - Math.random() * 150;
+      u.y = 380 + Math.random() * 440;
+    } else if (u.x < 0 || u.x > W) u.y = p.y;
+    this.fx.ring(this.w.units.roam ? u.x : p.x, this.w.units.roam ? u.y : p.y, this.col(t.key).c1, 4, 42, 0.45, 3);
     if (!u.npc) this.sfx.play('join');
   }
 
@@ -318,8 +330,27 @@ export class Battle {
       if (src && (src.team === 'A' || src.team === 'B') && src.team !== u.team) this.claimBounty(this.teams[src.team], u, src);
     }
     this.sfx.play('ko');
+    if (!u.npc && this.time - (this.lastKoPop || -9) > 0.25) {
+      this.lastKoPop = this.time;
+      this.fx.text(u.x, u.y - 8, 'KO', '#ff2a4a', 18, true);
+    }
     this.despawn(u, false);
-    if (src && src.rec) src.rec.kills = (src.rec.kills || 0) + 1;
+    if (src && src.rec) {
+      const r = src.rec;
+      r.kills = (r.kills || 0) + 1;
+      r.chain = this.time - (r.lastKill ?? -99) <= this.w.callouts.window ? (r.chain || 1) + 1 : 1;
+      r.lastKill = this.time;
+      if (this.w.callouts.enabled && r.chain >= 2) this.killCallout(r, src.team, r.chain);
+    }
+  }
+
+  killCallout(rec, team, n) {
+    const names = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'MULTI KILL'];
+    const text = n >= 5 ? 'RAMPAGE' : names[n];
+    if (!text || !(team === 'A' || team === 'B')) return;
+    this.banner(text, cleanName(rec.name, 14).toUpperCase(), n >= 4 ? '#ff2a4a' : '#ffd34a', { side: team, prio: n >= 4 ? 2 : 1, dur: 1.4 });
+    this.sfx.play('streak', n);
+    this.voice.say(`${text.toLowerCase()}! ${speakable(rec.name)}`, n >= 4 ? 2 : 1);
   }
 
   join(rec, key) {
@@ -1330,10 +1361,13 @@ export class Battle {
 
   updateUnit(t, u, dt) {
     const w = this.w;
-    const p = slotPos(t.key, u.slot);
-    const k = damp(6, dt);
-    u.x += (p.x - u.x) * k;
-    u.y += (p.y - u.y) * k;
+    if (w.units.roam) this.roam(t, u, dt);
+    else {
+      const p = slotPos(t.key, u.slot);
+      const k = damp(6, dt);
+      u.x += (p.x - u.x) * k;
+      u.y += (p.y - u.y) * k;
+    }
     u.flash = Math.max(0, u.flash - dt);
     u.label -= dt;
     u.spin += dt * (u.elite > 0 ? 4 : 1);
@@ -1360,6 +1394,46 @@ export class Battle {
       if (info.alive) this.proj.bolt(u.x + t.dir * 22, u.y, info.x, info.y, target, dmg, { team: t.key, rec: u.rec, kind: 'bolt' }, this.col(t.key).c1, w.combat.boltSpeed);
       this.sfx.play('laser');
     }
+  }
+
+  // Avatars float around their own half: each picks a wander point in its
+  // team's zone (behind the territory line), drifts there, keeps clear of
+  // teammates, then picks a new point. Cosmetic only; combat is unchanged.
+  roam(t, u, dt) {
+    const w = this.w.units;
+    // each side keeps a roomy zone; the territory line only nudges it
+    const line = clamp(this.territoryX, 320, 400);
+    const minX = t.key === 'A' ? 160 : line + 40;
+    const maxX = t.key === 'A' ? line - 40 : W - 160;
+    if (u.wx == null || (u.wt -= dt) <= 0 || Math.hypot(u.wx - u.x, u.wy - u.y) < 10) {
+      u.wx = minX + Math.random() * Math.max(20, maxX - minX);
+      u.wy = 360 + Math.random() * 470;
+      u.wt = 3 + Math.random() * 4;
+    }
+    u.wx = clamp(u.wx, minX, Math.max(minX, maxX));
+    let ax = u.wx - u.x;
+    let ay = u.wy - u.y;
+    const d = Math.hypot(ax, ay) || 1;
+    const sp = w.roamSpeed * (1 + Math.min(4, d / 120)); // hurry back when far away
+    let vx = (ax / d) * sp;
+    let vy = (ay / d) * sp;
+    for (const o of t.units) {
+      if (o === u) continue;
+      const dx = u.x - o.x;
+      const dy = u.y - o.y;
+      const dd = dx * dx + dy * dy;
+      if (dd < 64 * 64 && dd > 0.01) {
+        const f = (64 * 64 - dd) / (64 * 64);
+        const l = Math.sqrt(dd);
+        vx += (dx / l) * 140 * f;
+        vy += (dy / l) * 140 * f;
+      }
+    }
+    const k = damp(3, dt);
+    u.vx = (u.vx || 0) + (vx - (u.vx || 0)) * k;
+    u.vy = (u.vy || 0) + (vy - (u.vy || 0)) * k;
+    u.x = clamp(u.x + u.vx * dt, t.key === 'A' ? 120 : minX - 30, t.key === 'A' ? maxX + 30 : W - 120);
+    u.y = clamp(u.y + u.vy * dt + Math.sin(this.time * 2 + u.spin) * 6 * dt, 340, 860);
   }
 
   updateBoss(dt) {

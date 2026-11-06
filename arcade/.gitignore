@@ -5,3 +5,4 @@ recordings/*.jsonl
 dist/
 public/assets/*
 !public/assets/README.md
+VERSION

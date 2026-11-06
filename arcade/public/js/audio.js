@@ -168,6 +168,13 @@ export class Sfx {
           this.tone(55, 110, 1.8, 'sine', 0.25);
         }
         break;
+      case 'streak':
+        if (this.gate(name, 250)) {
+          const base = 660 + Math.min(4, size) * 110;
+          for (let i = 0; i < Math.min(5, size); i++) this.tone(base + i * 220, base + i * 220, 0.09, 'square', 0.07, i * 0.07);
+          this.noise(0.3, 0.08, 7000, 1500, 'highpass');
+        }
+        break;
       case 'shield':
         if (this.gate(name, 150)) this.tone(880, 1760, 0.25, 'sine', 0.06);
         break;
