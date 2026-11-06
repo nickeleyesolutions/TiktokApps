@@ -34,6 +34,9 @@ import { HyperField, HyperCube, axisColors } from './hyper.js';
 const params = new URLSearchParams(location.search);
 const serverMode = typeof window.io === 'function' && !params.has('demo');
 const obsMode = params.has('obs');
+// ?lite: no WebGL (CPU bloom + scanlines instead). For capture apps with a
+// built-in browser (TikTok LIVE Studio Link source) or machines without a GPU.
+const liteMode = params.has('lite');
 setServerMode(serverMode);
 
 let weights = clone(DEFAULT_WEIGHTS);
@@ -59,7 +62,7 @@ world.id = 'world';
 stage.insertBefore(world, postCanvas);
 const wctx = world.getContext('2d', { alpha: false });
 const hctx = hudCanvas.getContext('2d');
-const post = new PostFX(postCanvas);
+const post = liteMode ? { ok: false } : new PostFX(postCanvas);
 
 const sfx = new Sfx();
 const voice = new Voice();
@@ -67,7 +70,7 @@ const music = new Music(sfx);
 const fx = new FX();
 const proj = new Projectiles();
 const backdrop = new Backdrop();
-const field = new HyperField(270, 480);
+const field = liteMode ? { ok: false } : new HyperField(270, 480);
 const skyCube = new HyperCube(4);
 let fieldCanvas = null;
 let fieldFrame = 0;

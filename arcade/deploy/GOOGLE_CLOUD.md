@@ -144,6 +144,27 @@ for you to go live.
    `owners.usernames` in `/opt/arena/arcade/config/weights.json`).
 5. End: director **Stop**, then end the LIVE in TikTok. Optionally stop the VM.
 
+## A public HTTPS link to the game (for LIVE Studio, OBS, Streamlabs or a phone)
+
+1. Console > Compute Engine > VM instances > your VM > **Edit** > Networking:
+   tick **Allow HTTP traffic** and **Allow HTTPS traffic** > **Save**.
+2. Console > VPC network > IP addresses: on your VM's external address click
+   **Promote to static IP address** (keeps the link the same after stop/start).
+3. On the VM:
+   ```bash
+   sudo bash TiktokApps/arcade/deploy/https-setup.sh
+   ```
+   It prints your links, for example
+   `https://34-123-45-67.sslip.io/?obs` (game screen),
+   `https://34-123-45-67.sslip.io/?obs&lite` (for LIVE Studio's built-in browser),
+   `https://34-123-45-67.sslip.io/director?key=YOURKEY` (director, from any phone).
+
+The game screen is read-only; every control needs the director key.
+
+- TikTok LIVE Studio: Add source > **Link** > paste the `?obs&lite` link, size 1080 x 1920.
+- OBS / Streamlabs: Add Browser Source > the `?obs` link, width 1080, height 1920,
+  tick "Control audio via OBS".
+
 ## Rehearse the broadcast without TikTok
 
 Streams to a stand-in receiver on the VM for 25 seconds and reports the game
