@@ -24,12 +24,16 @@ socket.on('connect', () => {
   $('conn').textContent = 'connected';
   $('conn').className = 'pill ok';
 });
+let denied = false;
 socket.on('disconnect', () => {
+  if (denied) return; // keep the "wrong key" message
   $('conn').textContent = 'offline';
   $('conn').className = 'pill bad';
 });
-socket.on('denied', (msg) => {
-  $('conn').textContent = msg;
+socket.on('denied', () => {
+  denied = true;
+  socket.io.opts.reconnection = false;
+  $('conn').textContent = 'wrong or missing key: open /director?key=YOURKEY';
   $('conn').className = 'pill bad';
 });
 socket.on('weights', (w) => {
