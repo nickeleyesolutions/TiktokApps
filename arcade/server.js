@@ -20,6 +20,7 @@ import { WeightsStore } from './src/weightsStore.js';
 import { TikTokBridge } from './src/tiktokBridge.js';
 import { Recorder, Replayer, listRecordings } from './src/recorder.js';
 import { createAvatarHandler } from './src/avatarProxy.js';
+import { Broadcaster } from './src/broadcaster.js';
 import { createNormalizer } from './public/js/shared/normalizer.js';
 import { MockDriver } from './public/js/shared/mock.js';
 
@@ -36,6 +37,8 @@ const ASSET_DIR = path.join(ROOT, 'public', 'assets');
 const HALL_FILE = path.join(ROOT, 'data', 'hall.json');
 
 const weights = new WeightsStore(path.join(ROOT, 'config', 'weights.json'));
+// BROADCAST=1 (cloud VM): the director's Go live panel can start the stream.
+const broadcaster = process.env.BROADCAST === '1' ? new Broadcaster({ root: ROOT, port: PORT }) : null;
 const bridge = new TikTokBridge({ signApiKey: process.env.SIGN_API_KEY });
 const recorder = new Recorder(REC_DIR);
 const normLive = createNormalizer();
@@ -67,6 +70,7 @@ app.get('/api/health', (_req, res) =>
     ok: true,
     bridge: bridge.state,
     recording: recorder.active,
+    broadcast: broadcaster ? { status: broadcaster.state.status, fps: broadcaster.state.fps, bitrate: broadcaster.state.bitrate, speed: broadcaster.state.speed, res: broadcaster.state.res } : 'disabled',
     stage: lastStatus ? { fps: lastStatus.fps, res: lastStatus.res, cpuMs: lastStatus.perf && lastStatus.perf.total, quality: lastStatus.quality, round: lastStatus.round, dimension: lastStatus.dimension } : null,
   })
 );
@@ -135,6 +139,7 @@ bridge.on('raw', (kind, raw) => {
   }
 });
 bridge.on('status', (st) => io.to('director').emit('bridge', st));
+if (broadcaster) broadcaster.on('status', (st) => io.to('director').emit('broadcast', { available: true, ...st }));
 
 const mock = new MockDriver((kind, raw) => publish(normMock.normalize(kind, raw), 'mock'));
 
@@ -239,6 +244,8 @@ function attachControls(socket) {
     else if (m.kind === 'chat') mock.chat(team, String(m.text || '').slice(0, 120));
   });
   socket.on('chaos', (level) => mock.chaos(String(level)));
+  socket.on('broadcast:start', (o = {}) => broadcaster && broadcaster.start(o));
+  socket.on('broadcast:stop', () => broadcaster && broadcaster.stop());
   socket.on('bridge:connect', (u) => bridge.connect(String(u || '')));
   socket.on('bridge:disconnect', () => bridge.disconnect());
   const sendRec = () => io.to('director').emit('recordings', { list: listRecordings(REC_DIR), recording: recorder.active, file: path.basename(recorder.file || ''), replaying: replayer.active });
@@ -271,6 +278,7 @@ io.on('connection', (socket) => {
     socket.join('director');
     socket.emit('weights', weights.data);
     socket.emit('bridge', bridge.state);
+    socket.emit('broadcast', broadcaster ? { available: true, ...broadcaster.state } : { available: false });
     socket.emit('recordings', { list: listRecordings(REC_DIR), recording: recorder.active, file: path.basename(recorder.file || ''), replaying: replayer.active });
     if (lastStatus) socket.emit('status', lastStatus);
 
@@ -325,6 +333,7 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 const shutdown = async () => {
+  if (broadcaster) broadcaster.stop(true);
   recorder.stop();
   mock.stop();
   await bridge.disconnect();

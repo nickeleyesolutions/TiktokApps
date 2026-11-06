@@ -155,7 +155,7 @@ launch angle in `combat.js`; seekers and FX are position-agnostic.
 
 ## Deploying
 
-`deploy/GOOGLE_CLOUD.md` is the runbook. `deploy/gcp-setup.sh` sets up a fresh Ubuntu 24.04 VM; `arena-server.service` runs the game server, `arena-broadcast.service` runs `broadcast.sh` (Xvfb, Chrome kiosk, PulseAudio null sink, ffmpeg to RTMP). Secrets live in `/etc/arena/*.env` on the VM only.
+`deploy/GOOGLE_CLOUD.md` is the runbook (accounts, VM, install, rehearsal, per-show routine). TikTok issues a new stream key per LIVE session (third-party guides), so with `BROADCAST=1` the director has a Go live panel: Server URL + key go to `src/broadcaster.js`, which runs `broadcast.sh` with them in its environment, keeps them in memory only, redacts them from ffmpeg output, and retries if the RTMP connection drops. `deploy/gcp-setup.sh` sets up a fresh Ubuntu 24.04 VM; `arena-server.service` runs the game server, `arena-broadcast.service` runs `broadcast.sh` (Xvfb, Chrome kiosk, PulseAudio null sink, ffmpeg to RTMP). Secrets live in `/etc/arena/*.env` on the VM only.
 
 ## Testing without going live
 

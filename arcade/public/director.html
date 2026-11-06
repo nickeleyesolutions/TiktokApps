@@ -45,6 +45,23 @@
 
   <div id="code"><span id="codeMsg">Code changed.</span><button id="codeBtn" type="button">Hot reload stage</button></div>
 
+  <div id="bcast" style="display:none">
+    <h3>Go live (stream from the VM)</h3>
+    <div class="card">
+      <p class="note">Each TikTok LIVE session has a new key. On TikTok LIVE Producer: set title and category, then copy the Server URL and Stream Key here. The key stays in the VM's memory only.</p>
+      <div class="row" style="margin-top:6px">
+        <input id="bUrl" type="password" placeholder="Server URL (rtmp://...)" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <input id="bKey" type="password" placeholder="Stream Key" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="row" style="margin-top:6px">
+        <select id="bRes"><option value="1080">1080 x 1920 (8 vCPU)</option><option value="720">720 x 1280 (4 vCPU)</option></select>
+        <button id="bStart" type="button">Start streaming</button>
+        <button id="bStop" type="button">Stop</button>
+      </div>
+      <div class="meta" id="bStatus">off</div>
+    </div>
+  </div>
+
   <h3>Live source</h3>
   <div class="card">
     <div class="row">

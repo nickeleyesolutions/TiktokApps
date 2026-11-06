@@ -60,6 +60,19 @@ socket.on('bridge', (b) => {
   if (b.username && !$('user').value) $('user').value = b.username;
 });
 $('connect').onclick = () => socket.emit('bridge:connect', $('user').value);
+
+socket.on('broadcast', (b) => {
+  $('bcast').style.display = b.available ? 'block' : 'none';
+  if (!b.available) return;
+  const since = b.since && b.status !== 'off' ? ` | ${Math.round((Date.now() - b.since) / 60000)} min` : '';
+  $('bStatus').textContent = `${b.status}${b.res ? ' ' + b.res : ''}${b.fps ? ' | ' + b.fps + ' fps' : ''}${b.bitrate ? ' | ' + b.bitrate : ''}${b.speed ? ' | speed ' + b.speed : ''}${since}${b.error ? ' | ' + b.error : ''}`;
+  $('bStatus').style.color = b.status === 'live' ? '#7dff9a' : b.status === 'off' ? '' : '#ffd34a';
+});
+$('bStart').onclick = () => {
+  socket.emit('broadcast:start', { url: $('bUrl').value, key: $('bKey').value, res: $('bRes').value });
+  $('bKey').value = '';
+};
+$('bStop').onclick = () => confirm('Stop the stream?') && socket.emit('broadcast:stop');
 $('disconnect').onclick = () => socket.emit('bridge:disconnect');
 
 socket.on('recordings', (r) => {

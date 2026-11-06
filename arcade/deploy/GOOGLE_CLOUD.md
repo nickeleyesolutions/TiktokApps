@@ -1,133 +1,167 @@
-# Running Arcade Arena on Google Cloud
+# Arcade Arena: cloud and TikTok setup, step by step
 
-The VM does everything: it listens to your TikTok room, renders the game in a
-headless Chrome, and streams the video to TikTok. Your home Wi-Fi only carries
-your phone's director page, so a spotty connection cannot drop the stream.
+## The map
 
+```mermaid
+flowchart LR
+  subgraph phone["Your phone / laptop"]
+    TT["TikTok app or LIVE Producer<br/>(you start the LIVE, copy the key)"]
+    DIR["Director page<br/>(Go live panel, test bench)"]
+  end
+  subgraph gcp["Google Cloud VM (Ubuntu 24.04)"]
+    SRV["Game server<br/>reads your room's events"]
+    STAGE["Chrome on a virtual screen<br/>renders the game"]
+    FF["ffmpeg<br/>video + game audio"]
+  end
+  TIKTOK[("TikTok LIVE")]
+  TIKTOK -- "chat, likes, gifts (public, read-only)" --> SRV
+  SRV --> STAGE --> FF -- "RTMP with this session's stream key" --> TIKTOK
+  DIR -- "SSH tunnel" --> SRV
+  TT -. "copy Server URL + Stream Key" .-> DIR
 ```
-TikTok room events --> [VM] game server --> Chrome on a virtual display
-                                              |
-                              ffmpeg (video + game audio) --> TikTok RTMP
-```
 
-Tested in a 4 vCPU Ubuntu 24.04 sandbox with a real live room:
-720x1280 rendered at about 50 fps and encoded at a steady 30 fps with game
-audio. At 1080x1920 the encoder held 30 fps but the game lowered its internal
-resolution to keep up, so use 8 vCPUs for 1080p.
+The VM does the heavy lifting and the uploading. Your home connection only
+carries the director page, so a Wi-Fi drop does not drop the stream.
 
-## 1. Create the project and VM (you)
+## What each account is for, and what never gets shared
 
-In the Google Cloud console, or with the `gcloud` CLI in Cloud Shell:
+| Thing | Used for | Who types it, where | Shared with Claude? |
+|---|---|---|---|
+| Google account (your Gmail) | signing in to Google Cloud console | you, in your browser | never |
+| TikTok login (via Google) | starting the LIVE, opening LIVE Producer | you, on TikTok | never |
+| TikTok username | the game reads your room's public events | `/etc/arena/arena.env` on the VM | yes, it is public |
+| Stream Key + Server URL | sending video to your LIVE | director Go live panel (stays in VM memory) | never |
+| Director key | locks the director page | `/etc/arena/arena.env` on the VM | no need |
+| GitHub token (read-only, one repo) | cloning the private repo onto the VM once | you, on the VM | never |
+
+Nothing in this setup needs your Google or TikTok password. The game reads
+your room the same way any viewer's app does, by username. Because one
+Google login guards both Google Cloud and TikTok, turn on 2-Step
+Verification for it (Google Account > Security) before you start.
+
+**Main or secondary TikTok account?** Use your main account for the real
+show: stream key access reportedly needs about 1,000 followers and age 18+,
+and is rolled out by account and region (third-party guides, not TikTok
+docs). Keep the secondary account as a test viewer: from it you can like,
+chat and send a cheap gift to your own LIVE to check the game reacts.
+
+## Phase 1: accounts (about 15 minutes, once)
+
+1. Google Account > Security: turn on 2-Step Verification.
+2. Sign up for Google Cloud with the same Google account at
+   https://cloud.google.com/free . New customers get $300 of credit for 90
+   days; a card is required for identity, and you are not charged during the
+   trial unless you upgrade to a paid account.
+3. In the console: Billing > Budgets & alerts > create a budget (for example
+   $50/month) with email alerts at 50%, 90% and 100%.
+4. GitHub > Settings > Developer settings > Fine-grained tokens: create a
+   token with read-only "Contents" access to `nickeleyesolutions/TiktokApps`,
+   expiring in 7 days. Keep it in your password manager.
+5. TikTok, on desktop: open LIVE Producer (https://livecenter.tiktok.com/producer)
+   while logged in. If it offers a Server URL and Stream Key after you set a
+   title and category, you have key access. If it does not, stop here and tell
+   me; the fallback is OBS on your computer.
+
+## Phase 2: create the VM (about 5 minutes, once)
+
+In the console click "Activate Cloud Shell" (top right). It opens a terminal
+already signed in as you. Paste:
 
 ```bash
-gcloud projects create arcade-arena-live --name="Arcade Arena"
+gcloud config set project YOUR_PROJECT_ID
 ```
-```bash
-gcloud config set project arcade-arena-live
-```
-Link a billing account to the project (console: Billing > Link a billing account), then:
+(the project ID is shown in the console's project picker; the free trial creates "My First Project")
 ```bash
 gcloud services enable compute.googleapis.com
 ```
 ```bash
-gcloud compute instances create arena \
-  --zone=us-central1-a \
-  --machine-type=e2-standard-8 \
-  --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
-  --boot-disk-size=30GB
+gcloud compute instances create arena --zone=us-central1-a --machine-type=e2-standard-8 --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud --boot-disk-size=30GB
 ```
 
-- `e2-standard-8` (8 vCPU) for 1080p. `e2-standard-4` is enough for 720p.
-- Pick the zone closest to you. Check current prices in the console's
-  pricing calculator; streaming also uses outbound bandwidth (about 2.7 GB
-  per hour at 6000 kbps, about 1.4 GB per hour at 3200 kbps).
-- No firewall changes are needed. The director is reached through an SSH
-  tunnel (step 4), so nothing is exposed to the internet.
+- `e2-standard-8` (8 vCPU) for 1080p; `e2-standard-4` is enough for 720p.
+- Pick a zone near you. Streaming sends out about 2.7 GB per hour at 6000
+  kbps (1080p) or 1.4 GB per hour at 3200 kbps (720p); check current VM and
+  network prices in the console's pricing calculator.
+- No firewall rules to add: the director goes through an SSH tunnel.
+- To save money between shows: `gcloud compute instances stop arena --zone=us-central1-a`
+  (and `start` before the next one). A stopped VM still pays for its disk.
 
-## 2. Put the code on the VM
-
-The repository is private, so clone it with a GitHub token (a fine-grained
-personal access token with read access to `nickeleyesolutions/TiktokApps`):
+## Phase 3: install the game on the VM (about 10 minutes, once)
 
 ```bash
 gcloud compute ssh arena --zone=us-central1-a
 ```
+On the VM:
 ```bash
 git clone -b claude/confident-pascal-8nd2c3 https://github.com/nickeleyesolutions/TiktokApps.git
 ```
-(username: your GitHub name, password: the token)
-
+(username: your GitHub username, password: the token from Phase 1)
 ```bash
 sudo bash TiktokApps/arcade/deploy/gcp-setup.sh
 ```
-
-The setup script installs Node 22, Google Chrome, Xvfb, PulseAudio and ffmpeg,
-creates an `arena` user, copies the code to `/opt/arena`, and starts the game
-server as a service.
-
-## 3. Your settings (you, on the VM only)
-
 ```bash
 sudo nano /etc/arena/arena.env
 ```
-- `TIKTOK_USERNAME`: your username without the @. The server keeps checking and connects as soon as you go live.
-- `DIRECTOR_KEY`: any long random string.
-
+Set `TIKTOK_USERNAME` (no @) and `DIRECTOR_KEY` (any long random string;
+`BROADCAST=1` is already set). Save, then:
 ```bash
 sudo systemctl restart arena-server
 ```
-
 ```bash
-sudo nano /etc/arena/stream.env
+curl -s localhost:3000/api/health
 ```
-- `RTMP_URL` and `STREAM_KEY`: from TikTok. On desktop, TikTok's Go LIVE
-  page or LIVE Studio shows a Server URL and Stream Key when your account can
-  stream with a key. Access depends on TikTok's eligibility rules for your
-  account [verify in your TikTok account]. Some guides say the key can change
-  each session [verify]: if so, update this file before each stream.
-- 720p on a 4 vCPU VM: set `RES_W=720`, `RES_H=1280`, `VBITRATE=3200k`.
+`ok: true` and `bridge.status: waiting-for-live` means it is ready and waiting
+for you to go live.
 
-Never paste the stream key into chat, GitHub, or a screenshot.
+## Phase 4: rehearsal (once, about 20 minutes)
 
-## 4. Go live
-
-1. Start the LIVE on TikTok (stream key mode), then on the VM:
-   ```bash
-   sudo systemctl enable --now arena-broadcast
-   ```
-2. Open the director from your laptop through a tunnel:
+1. On your laptop, open a tunnel and leave the window open:
    ```bash
    gcloud compute ssh arena --zone=us-central1-a -- -L 3000:localhost:3000
    ```
-   then browse to `http://localhost:3000/director?key=YOUR_DIRECTOR_KEY`.
-3. Health check at any time:
-   ```bash
-   curl -s localhost:3000/api/health
-   ```
-   `bridge.status` should be `connected` and `stage.fps` 28 or higher.
+2. Browse to `http://localhost:3000/?obs` (the stage) and
+   `http://localhost:3000/director?key=YOUR_DIRECTOR_KEY` (the director).
+3. Director > Crowd simulator > Med: watch the game play itself. Try the test
+   bench buttons (Whale finisher, Orbital, Rift, Randonaut).
+4. Do a short real LIVE (Phase 5) with your secondary account in the room as
+   a viewer; like, chat "a", send a Rose. Check the director's event feed.
 
-Stop streaming:
-```bash
-sudo systemctl stop arena-broadcast
-```
-Logs:
-```bash
-journalctl -u arena-server -u arena-broadcast -f
-```
+## Phase 5: every show
 
-## Rendering modes
+1. TikTok LIVE Producer: set title and category, Save & Go LIVE, copy the
+   Server URL and Stream Key. (Keys are reported to change every session.)
+2. Laptop or phone: tunnel open, director open, Go live panel: paste both,
+   pick 1080 or 720, **Start streaming**. Status should turn `live` with about
+   30 fps.
+3. Check your LIVE on your phone (on mobile data, not your Wi-Fi). The game
+   server connects to your room on its own within a minute (Live source line).
+4. During the show: be on mic now and then, use director buttons and `!`
+   chat commands from your own account (add your username to
+   `owners.usernames` in `/opt/arena/arcade/config/weights.json`).
+5. End: director **Stop**, then end the LIVE in TikTok. Optionally stop the VM.
 
-`RENDER_MODE=cpu` (default) turns WebGL off in Chrome and uses the CPU bloom
-and scanline fallback. Software WebGL stalls on every frame on GPU-less VMs
-(measured 20 fps vs 50 to 60 fps without it). You lose the WebGL-only
-effects: CRT curvature, chromatic aberration, the dimension shader field and
-the prism sheen. Hypercubes, orbit rings, cages, bloom and everything else stay.
+## Troubleshooting
 
-`RENDER_MODE=gpu` is for a VM with an NVIDIA GPU and drivers (for example a
-G2 machine). It is untested here; try it only after the CPU setup works.
+- `curl -s localhost:3000/api/health` on the VM: `bridge.status`, `broadcast.status`, `stage.fps`.
+- Logs: `journalctl -u arena-server -f`
+- Go live panel says `reconnecting` with "Connection refused" or "I/O error":
+  the key is stale or the LIVE is not started. Get a fresh key from LIVE
+  Producer and paste again.
+- `stage.fps` under 28: switch to 720 in the panel, or use a bigger VM.
+- Game shows no viewers: check `bridge.status` is `connected`; the username in
+  `arena.env` must be the one that is live.
 
-## What I need from you
+## Render modes
 
-1. The VM created and `gcp-setup.sh` run (steps 1 and 2). Tell me if any command errors and paste the error text (not keys).
-2. Your TikTok username, so I can point a live test at your room when you go live (`npm run live-test -- yourname 60`).
-3. Whether TikTok shows you a Server URL and Stream Key. If it does not, the fallback is OBS on your computer pointed at the VM's stage, which still sends video over your home connection.
+`RENDER_MODE=cpu` (default) turns WebGL off in the headless Chrome and uses a
+CPU bloom and scanline fallback: software WebGL stalls on every frame on
+GPU-less VMs (measured 20 fps vs 50 to 60 fps without it). Lost in this mode:
+CRT curvature, chromatic aberration, the dimension shader field and the prism
+sheen. Hypercubes, orbit rings, cages, bloom and everything else stay.
+`RENDER_MODE=gpu` is for a VM with an NVIDIA GPU and drivers; untested.
+
+## Sources for the TikTok and Google facts above
+
+- Stream key eligibility (about 1,000 followers, 18+, gradual rollout): third-party guides, e.g. https://bigvu.tv/blog/how-to-get-a-tiktok-stream-key/ , https://sendshort.ai/guides/tiktok-stream-key/ , https://hexeum.net/guides/how-to-get-a-tiktok-stream-key/ . Not confirmed in TikTok's own docs.
+- New key per session, LIVE Producer location: https://livepush.io/blog/tiktok-stream-key/ , https://onestream.live/blog/tiktok-stream-key-guide/ (third-party).
+- Google Cloud free trial terms: https://cloud.google.com/free-trial/ and https://cloud.google.com/signup-faqs

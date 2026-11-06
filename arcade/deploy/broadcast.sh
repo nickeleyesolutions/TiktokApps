@@ -29,7 +29,12 @@ if [[ $RENDER_MODE == gpu ]]; then GL_FLAGS=(--use-gl=angle --use-angle=vulkan -
 else GL_FLAGS=(--disable-gpu --disable-webgl); fi
 export DISPLAY=:$DISPLAY_NUM
 
-cleanup() { kill $(jobs -p) 2>/dev/null || true; }
+# stop Xvfb, Chrome and ffmpeg together when this script is stopped
+cleanup() {
+  trap - EXIT INT TERM
+  kill $(jobs -p) 2>/dev/null || true
+  wait 2>/dev/null || true
+}
 trap cleanup EXIT INT TERM
 
 Xvfb ":$DISPLAY_NUM" -screen 0 "${RES_W}x${RES_H}x24" -nolisten tcp &
@@ -53,10 +58,11 @@ BUF=$(( ${VBITRATE%k} * 2 ))k
 AUDIO_IN=(-f lavfi -i anullsrc=r=44100:cl=stereo)
 pactl list short sources 2>/dev/null | grep -q arena.monitor && AUDIO_IN=(-thread_queue_size 1024 -f pulse -i arena.monitor)
 
-exec ffmpeg -hide_banner -loglevel warning -stats \
+ffmpeg -hide_banner -loglevel warning -stats \
   -thread_queue_size 1024 -f x11grab -draw_mouse 0 -framerate "$FPS" -video_size "${RES_W}x${RES_H}" -i ":$DISPLAY_NUM" \
   "${AUDIO_IN[@]}" \
   -c:v libx264 -preset "$X264_PRESET" -tune zerolatency -pix_fmt yuv420p \
   -b:v "$VBITRATE" -maxrate "$VBITRATE" -bufsize "$BUF" -g "$GOP" -keyint_min "$GOP" -sc_threshold 0 \
   -c:a aac -b:a "$ABITRATE" -ar 44100 -ac 2 \
-  -f flv "${RTMP_URL%/}/${STREAM_KEY}"
+  -f flv "${RTMP_URL%/}/${STREAM_KEY}" &
+wait $!
