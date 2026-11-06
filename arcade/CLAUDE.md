@@ -11,6 +11,8 @@ npm install
 npm start                      # http://localhost:3000 (stage) and /director
 npm run check                  # unit tests + 20 min headless battle simulation
 npm run build:demo             # dist/arena-demo.html, single file, offline demo
+npm run live-test -- NAME 60   # connect to a live room, print event counts, save a recording
+npm run find-live              # which accounts in scripts/live-candidates.txt are live now
 node server.js --user NAME     # connect to a live room on start
 node server.js --record        # write every event to recordings/*.jsonl
 node server.js --replay recordings/FILE.jsonl --speed 2 --loop
@@ -48,6 +50,7 @@ director (phone) --- cmd / weights / mock ----------------+    status <-+
   - `post.js`: WebGL2 pass over layers 1+2: bloom, scanlines, aberration, vignette, curvature, pixelate, glitch, grading.
   - `hud.js`: LAYER 3 on its own canvas so text stays sharp.
   - `audio.js`: procedural Web Audio SFX, chiptune `Music` loop (intensity follows the battle), Web Speech announcer.
+  - `randonaut.js`: random anomalies (attractor, void, themed anomaly) steered by chat intention words.
   - `textcache.js`: cached text sprites for HUD labels, names and damage numbers.
   - `panel.js`: control UI shared by `/director` and the in-stage drawer (`~` key or gear).
 
@@ -99,6 +102,8 @@ these numbers are under "Research notes".
 - **Summon variants**: tier-4 gifts below `gifts.orbitalCoins` play the Leviathan, at or above it the Orbital Strike.
 - **Dimensions (evolution)**: shared energy from coins, likes, shares, joins and rift wins climbs D1 ARCADE, D2 AURORA (+25% seekers per volley), D3 TESSERACT (+10% gift power, tesseract cages around the cores), D4 KALEIDOSCOPE (+15% turn speed, orbit rings on units), D5 FIFTH DIMENSION (+25% gift power, 5D penteract). Energy drains (`ascension.decayPerSec` x level), so the room must keep feeding it; a level drops below 85% of its threshold. Each level-up plays a screen fold (post `uWarp`) and a callout. HUD: the center hex shows the level, its ring shows progress.
 - **Rifts (countdown buffs)**: every `rifts.everySeconds` (never during a gate or cinematic) a rift warns for `warnSeconds`, then both teams race for `durationSeconds`. Types rotate in order: LIKE STORM (likes, HYPERDRIVE turns x1.6), GIFT RUSH (gift count, PRISM SHIELD base -30% damage + unit shields), UNITY CALL (chat messages, SWARM +15 barrage +15 haste), COIN SURGE (coins, PHASE SHIFT gifts x1.5). First team to the goal wins the buff for `buffSeconds`; nobody reaching it = rift collapses. Goals scale to the room's recent per-second rates (`goalScale`, with per-type floors and caps), so small and big rooms both get winnable races.
+- **Onboarding (from the first live-room test: nobody types A/B in a room that does not know the game)**: a like enlists the viewer on the underdog side and fires heart missiles (`likes.*`); any chat message enlists (`chat.autoJoinAny`); typing A/B still picks a side; people entering get a "HI NAME, TAP LIKE TO ATTACK" line; the always-on HOW TO PLAY legend (bottom right) flashes the row of whatever someone just did.
+- **Randonaut events**: at random gaps (exponential, `randonaut.meanSeconds`, floor `minSeconds`), a random point gets a "quantum lock" scan, then becomes an ATTRACTOR (teams race with likes to claim it; the reward is drawn at random), a VOID (swallows projectiles), or an ANOMALY themed by the chat's most-typed intention word in the last 45 s (fire, ice, storm, light, void; 3+ votes, else random). Randomness uses Web Crypto (`cryptoRandom`), with `env.entropy()` as a hook for an external source. Randomness only touches free actions; gifts are never part of a random draw.
 - **Rotating guide card** (`guide.oracle`): always on screen, flips to a new "GIVE x / UNLOCK y" card every `guide.cardSeconds` and moves between three safe slots every two cards. Live state (gate open, limit ready, rift running, underdog) jumps the queue every other card. Turning `guide.oracle` off restores the old transient guide.
 - **Music**: procedural chiptune; D3+ adds a pad, each dimension adds tempo, kick drums drive a beat pulse used by bloom and the hyperfield; speeds up and adds layers during stagger / happy hour / boss (level 1) and the execution gate (level 2), ducks under cinematics, stops on the victory screen.
 - **Boss invasion**, **happy hour**: director buttons or owner chat commands.
@@ -139,6 +144,18 @@ and gauges to localStorage and restores them after the reload. Weight edits in
 
 **Top vs bottom layout later**: change `slotPos`, `CORE_POS` and the volley
 launch angle in `combat.js`; seekers and FX are position-agnostic.
+
+## Live findings (real rooms, Nov 2026)
+
+- Tested on @lofigirl (about 400 to 530 viewers): chat, like, follow, share, member and viewer-count events all normalize; real avatars come from `p16/p19-common-sign.tiktokcdn(-us|-eu).com` and `sf16-passport-sg.ibytedtos.com` and load through the proxy.
+- The connector's live check can say LIVE for a room that is not started (seen on @tiktok and @tiktoklive_us: room info `room not started`). The bridge now requires room status 2 and otherwise waits and retries.
+- TikTok's web LIVE discovery page shows nothing to a logged-out data-center visitor, so finding a room to test against means checking candidates (`npm run find-live`).
+- Headless Chrome on a GPU-less machine: software WebGL stalls on every frame upload ("GPU stall due to ReadPixels"), about 20 fps. With WebGL off, about 50 to 60 fps. `deploy/broadcast.sh` defaults to that CPU mode, and `main.js` falls back to a CPU bloom plus scanlines.
+- Chrome under Xvfb may throttle a window it thinks is hidden (0 fps). Keep the anti-throttle flags in `broadcast.sh`.
+
+## Deploying
+
+`deploy/GOOGLE_CLOUD.md` is the runbook. `deploy/gcp-setup.sh` sets up a fresh Ubuntu 24.04 VM; `arena-server.service` runs the game server, `arena-broadcast.service` runs `broadcast.sh` (Xvfb, Chrome kiosk, PulseAudio null sink, ffmpeg to RTMP). Secrets live in `/etc/arena/*.env` on the VM only.
 
 ## Testing without going live
 

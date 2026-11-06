@@ -24,7 +24,7 @@ const LEGEND = { x: 478, y: 880, w: 152 };
 const LEGEND_ROWS = [
   ['like', 'LIKE', 'ATTACK', '#ff5fa8'],
   ['chat', 'CHAT', 'JOIN IN', '#ffffff'],
-  ['side', 'A / B', 'PICK SIDE', '#7df9ff'],
+  ['side', 'A/B', 'PICK SIDE', '#7df9ff'],
   ['share', 'SHARE', 'SHIELD', '#9ff6ff'],
   ['follow', 'FOLLOW', 'HASTE', '#7dff9a'],
   ['gift', 'GIFT', 'POWER UP', '#ffd34a'],

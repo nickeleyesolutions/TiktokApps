@@ -1777,7 +1777,7 @@ export class Battle {
         });
         const nowTop = top[0];
         if (nowTop && prevTop && nowTop !== prevTop) {
-          this.banner('NEW COMMANDER', cleanName(nowTop.name, 14).toUpperCase(), '#ffd34a', { side: k });
+          this.banner('COMMANDER', `${cleanName(nowTop.name, 14).toUpperCase()} TAKES #1`, '#ffd34a', { side: k });
           this.voice.say(`${speakable(nowTop.name)} takes command of ${this.col(k).name}!`, 2);
           this.sfx.play('ready');
         }

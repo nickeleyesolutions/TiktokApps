@@ -7,7 +7,7 @@ set -euo pipefail
 REPO_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl git ca-certificates xvfb pulseaudio ffmpeg fonts-dejavu-core
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl git rsync ca-certificates xvfb pulseaudio ffmpeg fonts-dejavu-core
 if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
