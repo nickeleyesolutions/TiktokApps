@@ -307,6 +307,7 @@ io.on('connection', (socket) => {
     attachControls(socket);
   } else {
     socket.join('stage');
+    socket.emit('version', VERSION);
     if (!DIRECTOR_KEY || socket.handshake.query.key === DIRECTOR_KEY) attachControls(socket);
     socket.emit('weights', weights.data);
     socket.emit('hall', hall);

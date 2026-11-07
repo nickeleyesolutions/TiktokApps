@@ -186,6 +186,13 @@ if (serverMode) {
   socket = window.io({ query: { role: 'stage', key: params.get('key') || '' } });
   socket.on('weights', applyWeights);
   socket.on('evt', onEvent);
+  // After a server update, open game screens (LIVE Studio, OBS, the cloud
+  // broadcaster) reload themselves with the new code, keeping the match.
+  let seenVersion = null;
+  socket.on('version', (v) => {
+    if (seenVersion && v && v !== seenVersion) hotReload();
+    seenVersion = v;
+  });
   socket.on('evts', (list) => Array.isArray(list) && list.forEach(onEvent));
   socket.on('cmd', onCommand);
   socket.on('hall', (h) => (hall = Array.isArray(h) ? h : []));
