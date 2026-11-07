@@ -36,6 +36,7 @@ director (phone) --- cmd / weights / mock ----------------+    status <-+
 - `src/weightsStore.js`: `config/weights.json` merged over defaults. Edits on disk hot-apply.
 - `src/avatarProxy.js`: same-origin avatar proxy + cache (see "Hard rules").
 - `src/recorder.js`: JSONL record and replay of normalized events.
+- `src/chatbot.js`: auto chat messages. Always builds a suggestion for the director (copy and paste); optionally posts it from a second account via the connector's `sendMessage` (env `SIGN_API_KEY`, `CHATBOT_SESSIONID`, `CHATBOT_TT_TARGET_IDC`, plus the `bot.chat` weight). Never more than one post per 45 s, no repeats within 10 min.
 - `public/js/shared/`: code that runs in both Node and the browser.
   - `defaults.js`: every tunable number (`DEFAULT_WEIGHTS`), director slider `SCHEMA`, `THEMES`.
   - `normalizer.js`: raw TikTok payloads to small game events (gift streak math lives here).
@@ -50,6 +51,7 @@ director (phone) --- cmd / weights / mock ----------------+    status <-+
   - `post.js`: WebGL2 pass over layers 1+2: bloom, scanlines, aberration, vignette, curvature, pixelate, glitch, grading.
   - `hud.js`: LAYER 3 on its own canvas so text stays sharp.
   - `audio.js`: procedural Web Audio SFX, chiptune `Music` loop (intensity follows the battle), Web Speech announcer.
+  - `crowd.js`: room-wide hooks: crowd votes (polls), room goals (like / follow / share ladders), hype meter.
   - `randonaut.js`: random anomalies (attractor, void, themed anomaly) steered by chat intention words.
   - `textcache.js`: cached text sprites for HUD labels, names and damage numbers.
   - `panel.js`: control UI shared by `/director` and the in-stage drawer (`~` key or gear).
@@ -106,11 +108,16 @@ these numbers are under "Research notes".
 - **Randonaut events**: at random gaps (exponential, `randonaut.meanSeconds`, floor `minSeconds`), a random point gets a "quantum lock" scan, then becomes an ATTRACTOR (teams race with likes to claim it; the reward is drawn at random), a VOID (swallows projectiles), or an ANOMALY themed by the chat's most-typed intention word in the last 45 s (fire, ice, storm, light, void; 3+ votes, else random). Randomness uses Web Crypto (`cryptoRandom`), with `env.entropy()` as a hook for an external source. Randomness only touches free actions; gifts are never part of a random draw.
 - **Rotating guide card** (`guide.oracle`): always on screen, flips to a new "GIVE x / UNLOCK y" card every `guide.cardSeconds` and moves between three safe slots every two cards. Live state (gate open, limit ready, rift running, underdog) jumps the queue every other card. Turning `guide.oracle` off restores the old transient guide.
 - **Music**: procedural chiptune; D3+ adds a pad, each dimension adds tempo, kick drums drive a beat pulse used by bloom and the hyperfield; speeds up and adds layers during stagger / happy hour / boss (level 1) and the execution gate (level 2), ducks under cinematics, stops on the victory screen.
+- **Unit classes** (`classes.*`): every viewer gets KNIGHT, MAGE, RANGER, CLERIC or ROGUE from a hash of their id (same class every visit), and can switch by typing the class word (aliases: tank, wizard, archer, healer, assassin...) with a `switchCooldown`. Knight: more HP + armor. Mage: 3 arcane seekers per turn. Ranger: faster turns, fast bolts, hunts the lowest-HP enemy. Cleric: heals the weakest ally each turn, weaker bolt. Rogue: every `every`-th hit is a BACKSTAB x`crit` (a counter, not a roll). Classes touch free actions only; gift effects are unchanged. Badge on the unit, class name under the name tag.
+- **Crowd votes** (`polls.*`): every `everySeconds` (not during rifts, gates, cinematics, boss) the room gets 3 options from a rotating list (BOSS, RAIN, PARTY, RIFT, WARP, RALLY) and types one word. One vote per viewer (changeable), majority wins, ties go to the first option shown, fewer than `minVotes` voters = nothing happens. Rifts wait while a vote is open. Director button "Crowd vote now", owner command `!vote`.
+- **Room goals** (`goals.*`): shared ladders for likes, follows (first follow per viewer) and shares. Each step rewards both teams: likes = HYPERDRIVE, follows = happy hour, shares = shields on every unit, plus dimension energy. Progress bars sit under the LIKE / SHARE / FOLLOW rows of the HOW TO PLAY panel.
+- **Host bot** (`bot.*`): the ARENA BOT bubble above the legend rotates short calls to action (goals, classes, votes soon, final blow) and greets new arrivals; the top ticker mixes the same tips into the Hall of Fame.
+- **Announcer voice** (`audio.voice`, `voicePitch`, `voiceRate`): picks an installed female voice by name (Aria, Jenny, Zira, Google UK English Female, Samantha...) and raises pitch if none is installed. Which voices exist depends on the OS and browser.
 - **Boss invasion**, **happy hour**: director buttons or owner chat commands.
 
 Owner chat commands (owners list, moderators, or the host): `!hh`, `!boss`,
 `!stagger a|b`, `!limit a|b`, `!gate a|b`, `!meteor a|b`, `!heal a|b`,
-`!reset`, `!theme ID`, `!set path value`, `!say text`.
+`!reset`, `!theme ID`, `!set path value`, `!say text`, `!vote`.
 
 ## Hard rules
 

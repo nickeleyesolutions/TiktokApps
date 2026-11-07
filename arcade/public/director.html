@@ -28,6 +28,7 @@
   #feed { height: 150px; overflow-y: auto; font:11px/1.4 ui-monospace,Menlo,monospace; color:var(--dim); background:#0f0d22; border-radius:8px; padding:6px 8px; }
   #feed .big { color: var(--gold); }
   .note { color:var(--dim); font-size:12px; margin:6px 0 0; }
+  .botmsg { background:#0f0d22; border:1px solid var(--line); border-radius:8px; padding:9px; font:13px/1.4 system-ui; min-height:38px; }
   #code { display:none; }
   #code.show { display:flex; align-items:center; justify-content:space-between; gap:8px; background:#2a2410; border:1px solid rgba(255,211,74,.5); color:#fff1c2; border-radius:10px; padding:8px 10px; margin:0 0 10px; }
 </style>
@@ -60,6 +61,17 @@
       </div>
       <div class="meta" id="bStatus">off</div>
     </div>
+  </div>
+
+  <h3>Auto messages for chat</h3>
+  <div class="card">
+    <p class="note">The game writes a chat message for the current moment (rules, room goals, votes, final blows). Copy it into your LIVE chat, or let the optional chat bot post it (needs a second TikTok account and a paid sign plan; see the runbook).</p>
+    <div id="botMsg" class="botmsg">waiting for the stage...</div>
+    <div class="row" style="margin-top:6px">
+      <button id="botCopy" type="button">Copy message</button>
+      <button id="botNext" type="button">Next message</button>
+    </div>
+    <div class="meta" id="botStatus"></div>
   </div>
 
   <h3>Soundtrack &amp; backdrops</h3>

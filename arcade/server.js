@@ -9,6 +9,7 @@
 //   node server.js --replay recordings/x.jsonl [--speed 2] [--loop]
 //
 // Env: PORT, TIKTOK_USERNAME, SIGN_API_KEY (Euler Stream key, optional),
+//      CHATBOT_SESSIONID + CHATBOT_TT_TARGET_IDC (optional chat bot account, see src/chatbot.js),
 //      DIRECTOR_KEY (if set, /director must be opened with ?key=...), AVATAR_HOSTS
 import express from 'express';
 import http from 'node:http';
@@ -21,6 +22,7 @@ import { TikTokBridge } from './src/tiktokBridge.js';
 import { Recorder, Replayer, listRecordings } from './src/recorder.js';
 import { createAvatarHandler } from './src/avatarProxy.js';
 import { Broadcaster } from './src/broadcaster.js';
+import { ChatBot } from './src/chatbot.js';
 import { createNormalizer } from './public/js/shared/normalizer.js';
 import { MockDriver } from './public/js/shared/mock.js';
 
@@ -47,6 +49,7 @@ try {
 const broadcaster = process.env.BROADCAST === '1' ? new Broadcaster({ root: ROOT, port: PORT }) : null;
 const bridge = new TikTokBridge({ signApiKey: process.env.SIGN_API_KEY });
 const recorder = new Recorder(REC_DIR);
+const chatbot = new ChatBot();
 const normLive = createNormalizer();
 const normMock = createNormalizer();
 
@@ -162,6 +165,12 @@ bridge.on('raw', (kind, raw) => {
 });
 bridge.on('status', (st) => io.to('director').emit('bridge', st));
 if (broadcaster) broadcaster.on('status', (st) => io.to('director').emit('broadcast', { available: true, ...st }));
+chatbot.on('status', (st) => io.to('director').emit('chatbot', st));
+// the chat bot follows the room the game is reading, only while it is live
+setInterval(() => {
+  const room = bridge.state.status === 'connected' ? bridge.username : '';
+  chatbot.tick(lastStatus, weights.data, room).catch((e) => console.warn('[chatbot]', e.message));
+}, 5000);
 
 const mock = new MockDriver((kind, raw) => publish(normMock.normalize(kind, raw), 'mock'));
 
@@ -223,6 +232,9 @@ function handleOwnerCommand(evt) {
       break;
     case 'ascend':
       stage({ type: 'ascend', delta: Number(rest[0]) || 1 });
+      break;
+    case 'vote':
+      stage({ type: 'poll' });
       break;
     case 'theme':
       if (rest[0]) weights.patch('theme', rest[0]);
@@ -303,6 +315,8 @@ io.on('connection', (socket) => {
     socket.emit('broadcast', broadcaster ? { available: true, ...broadcaster.state } : { available: false });
     socket.emit('recordings', { list: listRecordings(REC_DIR), recording: recorder.active, file: path.basename(recorder.file || ''), replaying: replayer.active });
     if (lastStatus) socket.emit('status', lastStatus);
+    socket.emit('chatbot', chatbot.state);
+    socket.on('chatbot:next', () => chatbot.nextSuggestion(lastStatus, weights.data));
 
     attachControls(socket);
   } else {
@@ -360,6 +374,7 @@ const shutdown = async () => {
   recorder.stop();
   mock.stop();
   await bridge.disconnect();
+  await chatbot.stop();
   process.exit(0);
 };
 process.on('SIGINT', shutdown);

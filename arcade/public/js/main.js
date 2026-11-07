@@ -149,6 +149,7 @@ function applyWeights(w) {
   theme = buildTheme();
   voice.enabled = !!weights.audio.tts;
   voice.minGap = weights.audio.ttsMinGapSeconds * 1000;
+  voice.configure({ style: weights.audio.voice, pitch: weights.audio.voicePitch, rate: weights.audio.voiceRate });
   sfx.setVolume(weights.audio.master);
   setSoundtrack(weights.audio.soundtrack);
   music.on = !!weights.audio.music && (!soundtrack.el || weights.audio.layerChiptune);

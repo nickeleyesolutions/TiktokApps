@@ -9,14 +9,14 @@
 //   900+     mostly covered by TikTok chat + buttons on phones: decoration only
 import { W, H, TAU, clamp, rgba, fmt, roundRectPath, easeOutBack, cleanName } from './util.js';
 import { avatarImage, pixelAvatar, unitSprite } from './sprites.js';
-import { UNIT_R, ELITE_R, commanderPos, DIMENSIONS } from './combat.js';
+import { UNIT_R, ELITE_R, commanderPos, DIMENSIONS, CLASSES, CLASS_IDS } from './combat.js';
 import { INTENTIONS } from './randonaut.js';
 
 // Places the rotating guide card can sit. All avoid the TikTok header, the
 // lower-left chat zone and the right-hand buttons (approximate, see drawSafeZones).
 const ORACLE_SLOTS = [
   { x: 360, y: 324, w: 560 },
-  { x: 290, y: 840, w: 260 },
+  { x: 222, y: 840, w: 264 },
 ];
 
 // Legend panel: bottom right, clear of TikTok's chat (left) and buttons (right edge).
@@ -28,7 +28,10 @@ const LEGEND_ROWS = [
   ['share', 'SHARE', 'SHIELD', '#9ff6ff'],
   ['follow', 'FOLLOW', 'HASTE', '#7dff9a'],
   ['gift', 'GIFT', 'POWER UP', '#ffd34a'],
+  ['cls', 'MAGE', 'CLASS', '#c48bff'],
 ];
+// legend rows that double as room-goal meters
+const GOAL_ROW = { like: 'like', share: 'share', follow: 'follow' };
 
 // 7x6 pixel icons for the legend (X = filled)
 const ICONS = {
@@ -40,7 +43,8 @@ const ICONS = {
   gift: ['.X...X.', 'XXXXXXX', 'X..X..X', 'XXXXXXX', 'X..X..X', 'XXXXXXX'],
 };
 function icon(ctx, name, x, y, px, color) {
-  const rows = ICONS[name];
+  const rows = ICONS[name] || (CLASSES[name] && CLASSES[name].icon);
+  if (!rows) return;
   ctx.fillStyle = color;
   for (let j = 0; j < rows.length; j++) for (let i = 0; i < rows[j].length; i++) if (rows[j][i] === 'X') ctx.fillRect(x + i * px, y + j * px, px, px);
 }
@@ -119,13 +123,180 @@ export class HUD {
     this.guidePage = 0;
     this.lastGuideCycle = -1;
     this.or = { t: 0, card: null, n: 0, slot: 0, ctxTurn: 0 };
+    this.bot = { t: 0, msg: null, n: 0, welcomeFor: null };
+    this.ticker = { s: '', tw: 0 };
+  }
+
+  // ---- glass header: soft panel behind the plates so text sits on something
+  drawGlass(ctx, th, time) {
+    const g = ctx.createLinearGradient(0, 122, 0, 272);
+    g.addColorStop(0, 'rgba(6,4,18,0.62)');
+    g.addColorStop(0.75, 'rgba(6,4,18,0.38)');
+    g.addColorStop(1, 'rgba(6,4,18,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 122, W, 150);
+    const la = ctx.createLinearGradient(0, 0, W / 2, 0);
+    la.addColorStop(0, rgba(th.A.c1, 0.9));
+    la.addColorStop(1, rgba(th.A.c1, 0));
+    ctx.fillStyle = la;
+    ctx.fillRect(0, 123, W / 2, 2);
+    const lb = ctx.createLinearGradient(W, 0, W / 2, 0);
+    lb.addColorStop(0, rgba(th.B.c1, 0.9));
+    lb.addColorStop(1, rgba(th.B.c1, 0));
+    ctx.fillStyle = lb;
+    ctx.fillRect(W / 2, 123, W / 2, 2);
+    // a slow light sweep across the header
+    const sx = ((time * 90) % (W + 400)) - 200;
+    const sw = ctx.createLinearGradient(sx - 120, 0, sx + 120, 0);
+    sw.addColorStop(0, 'rgba(255,255,255,0)');
+    sw.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+    sw.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sw;
+    ctx.fillRect(sx - 120, 125, 240, 120);
+  }
+
+  // ---- crowd vote panel (top slot). Returns true while visible.
+  drawPoll(ctx, b, time) {
+    const p = b.crowd && b.crowd.poll;
+    if (!p || b.cine || b.phase !== 'battle') return false;
+    const x = 80;
+    const y = 280;
+    const w = 560;
+    const rowH = 30;
+    const h = 40 + p.opts.length * rowH + 6;
+    const intro = easeOutBack(clamp((p.dur - p.t) / 0.4, 0, 1));
+    ctx.save();
+    ctx.translate(W / 2, y + h / 2);
+    ctx.scale(1, intro);
+    ctx.translate(-W / 2, -(y + h / 2));
+    roundRectPath(ctx, x, y, w, h, 12);
+    ctx.fillStyle = 'rgba(8,4,22,0.86)';
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = p.t < 5 && Math.sin(time * 12) > 0 ? '#ffd34a' : holo(ctx, x, x + w, time);
+    ctx.stroke();
+    txt(ctx, 'CROWD VOTE', x + 16, y + 20, 16, '#ffd34a', { orb: true, align: 'left', outline: 0 });
+    txt(ctx, `${Math.max(0, Math.ceil(p.t))}s`, x + w - 16, y + 20, 15, '#ffffff', { align: 'right', outline: 0, live: true });
+    txt(ctx, 'TYPE ONE WORD IN CHAT', x + w / 2 + 30, y + 20, 10, 'rgba(255,255,255,0.7)', { outline: 0 });
+    let total = 0;
+    for (const o of p.opts) total += p.votes[o.id] || 0;
+    let lead = null;
+    for (const o of p.opts) if (!lead || (p.votes[o.id] || 0) > (p.votes[lead.id] || 0)) lead = o;
+    p.opts.forEach((o, i) => {
+      const ry = y + 40 + i * rowH;
+      const n = p.votes[o.id] || 0;
+      const r = total ? n / total : 0;
+      const bump = p.bump[o.id] || 0;
+      roundRectPath(ctx, x + 12, ry, w - 24, rowH - 6, 6);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.fill();
+      if (r > 0) {
+        roundRectPath(ctx, x + 12, ry, Math.max(12, (w - 24) * r), rowH - 6, 6);
+        ctx.fillStyle = rgba(o.color, 0.28 + 0.3 * bump);
+        ctx.fill();
+      }
+      if (lead === o && n > 0) {
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = rgba(o.color, 0.9);
+        roundRectPath(ctx, x + 12, ry, w - 24, rowH - 6, 6);
+        ctx.stroke();
+      }
+      txt(ctx, o.word, x + 24, ry + 12, 15, o.color, { align: 'left', outline: 0 });
+      txt(ctx, '= ' + o.title, x + 24 + (o.word.length + 0.6) * 15, ry + 12, 12, '#ffffff', { align: 'left', outline: 0 });
+      txt(ctx, String(n), x + w - 26, ry + 12, 14, '#ffffff', { align: 'right', outline: 0, live: true });
+    });
+    ctx.restore();
+    return true;
+  }
+
+  // ---- host bot: a chat-style bubble above the legend with rotating tips,
+  // welcomes and live calls to action. Free, needs no TikTok login.
+  botLines(b, w) {
+    const L = [];
+    const cr = b.crowd;
+    const g = w.goals;
+    if (g && g.enabled && cr) {
+      const left = cr.goalTarget('like') - cr.goals.like;
+      L.push([`${fmt(Math.max(1, left))} MORE LIKES`, 'HYPERDRIVE FOR ALL', '#ff5fa8']);
+      const fl = cr.goalTarget('follow') - cr.goals.follow;
+      L.push([`${fl} MORE FOLLOWS`, 'UNLOCK HAPPY HOUR', '#7dff9a']);
+      const sh = cr.goalTarget('share') - cr.goals.share;
+      L.push([`${sh} MORE SHARES`, 'SHIELDS FOR EVERYONE', '#9ff6ff']);
+    }
+    if (w.classes.enabled && w.classes.byChat) {
+      const id = CLASS_IDS[(this.bot.n >> 1) % CLASS_IDS.length];
+      const tip = { knight: 'TANKY, TAKES LESS DMG', mage: 'FIRES 3 ARCANE SHOTS', ranger: 'FAST, HUNTS THE WEAK', cleric: 'HEALS YOUR TEAM', rogue: 'EVERY 3RD HIT CRITS' }[id];
+      L.push([`TYPE ${CLASSES[id].name}`, tip, CLASSES[id].color]);
+    }
+    L.push(['TAP LIKE', 'HEART MISSILES FIRE', '#ff5fa8']);
+    L.push([`TYPE ${w.chat.joinA[0].toUpperCase()} OR ${w.chat.joinB[0].toUpperCase()}`, 'PICK YOUR SIDE', '#ffffff']);
+    const und = b.underdog();
+    if (b.underdogMul(und) > 1) L.push([`HELP ${b.col(und).name}`, 'UNDERDOG POWER ON', '#7dff9a']);
+    for (const k of ['A', 'B']) if (b.teams[k].gate.active) L.push(['FINAL BLOW READY', `${fmt(b.coinsForTier(b.teams[k].gate.tier))}+ ENDS IT`, '#ff2a4a']);
+    if (w.polls.enabled && cr && !cr.poll && cr.pollT < 40) L.push(['CROWD VOTE SOON', `IN ${Math.max(1, Math.ceil(cr.pollT))}s`, '#ffd34a']);
+    return L;
+  }
+
+  drawBot(ctx, b, w, time, dt) {
+    if (!w.bot || !w.bot.onScreen) return;
+    const o = this.bot;
+    o.t += dt;
+    const show = 7;
+    // a new arrival gets greeted right away
+    if (b.welcome && o.welcomeFor !== b.welcome && (!o.msg || o.t > 3)) {
+      o.welcomeFor = b.welcome;
+      o.msg = [`HI ${cleanName(b.welcome.name, 12).toUpperCase()}!`, 'TAP LIKE TO ATTACK', '#ffd34a'];
+      o.t = 0;
+    } else if (!o.msg ? o.t >= 2 : o.t >= Math.max(show + 1, w.bot.everySeconds)) {
+      const lines = this.botLines(b, w);
+      o.msg = lines[o.n++ % lines.length];
+      o.t = 0;
+    }
+    if (!o.msg || o.t > show) return;
+    const a = clamp(Math.min(o.t / 0.25, (show - o.t) / 0.4), 0, 1);
+    const bw = LEGEND.w + 70;
+    const x = LEGEND.x + LEGEND.w - bw;
+    const y = LEGEND.y - 66;
+    const bh = 54;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(0, (1 - a) * 10);
+    roundRectPath(ctx, x, y, bw, bh, 10);
+    ctx.fillStyle = 'rgba(10,6,26,0.9)';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = rgba(o.msg[2], 0.8);
+    ctx.stroke();
+    // little tail toward the legend
+    ctx.beginPath();
+    ctx.moveTo(x + bw - 34, y + bh);
+    ctx.lineTo(x + bw - 22, y + bh + 8);
+    ctx.lineTo(x + bw - 18, y + bh);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(10,6,26,0.9)';
+    ctx.fill();
+    // bot face
+    ctx.fillStyle = o.msg[2];
+    ctx.fillRect(x + 9, y + 13, 18, 14);
+    ctx.fillRect(x + 16, y + 8, 4, 5);
+    ctx.fillStyle = '#05030c';
+    const blink = Math.sin(time * 3) > 0.95;
+    ctx.fillRect(x + 12, y + 17, 4, blink ? 1 : 4);
+    ctx.fillRect(x + 20, y + 17, 4, blink ? 1 : 4);
+    txt(ctx, 'BOT', x + 18, y + 40, 8, 'rgba(255,255,255,0.65)', { outline: 0 });
+    const fitPx = (str, room, max) => Math.max(8, Math.min(max, Math.floor(room / Math.max(1, str.length))));
+    const room = bw - 44;
+    txt(ctx, o.msg[0], x + 38, y + 18, fitPx(o.msg[0], room, 14), '#ffffff', { outline: 0, align: 'left' });
+    txt(ctx, o.msg[1], x + 38, y + 38, fitPx(o.msg[1], room, 12), o.msg[2], { outline: 0, align: 'left' });
+    ctx.restore();
   }
 
   draw(ctx, b, o) {
     const { theme, w, time, dt, hall, demo } = o;
     ctx.save();
     ctx.translate(b.shakeX * 0.35, b.shakeY * 0.35);
-    this.drawHall(ctx, hall, dt);
+    this.drawGlass(ctx, theme, time);
+    this.drawHall(ctx, hall, dt, b, w);
     this.drawPlates(ctx, b, theme, time);
     this.drawBars(ctx, b, theme, w, time);
     this.drawStacks(ctx, b, theme);
@@ -134,13 +305,14 @@ export class HUD {
     b.fx.drawTexts(ctx, PIX);
     this.drawGates(ctx, b, w, time);
     this.drawTopPills(ctx, b, w, time);
-    const riftShown = this.drawRift(ctx, b, theme, time);
-    const oracleTop = w.guide.enabled && w.guide.oracle ? this.drawOracle(ctx, b, w, time, dt, riftShown) : false;
+    const riftShown = this.drawRift(ctx, b, theme, time) || this.drawPoll(ctx, b, time);
+    const oracleTop = w.guide.enabled && w.guide.oracle && b.phase === 'battle' ? this.drawOracle(ctx, b, w, time, dt, riftShown) : false;
     if (!(w.guide.enabled && w.guide.oracle)) this.drawFeedOrGuide(ctx, b, theme, w, time);
     else if (!riftShown && !oracleTop && !b.cine) this.drawFeed(ctx, b);
     this.drawBuffs(ctx, b, time);
     this.drawRandonaut(ctx, b, theme, time);
-    if (w.legend.enabled && b.phase === 'battle' && !b.cine) this.drawLegend(ctx, b, time);
+    if (w.legend.enabled && b.phase === 'battle' && !b.cine) this.drawLegend(ctx, b, w, time);
+    if (b.phase === 'battle' && !b.cine) this.drawBot(ctx, b, w, time, dt);
     this.drawBanners(ctx, b, time);
     if (b.cine) this.drawCine(ctx, b, theme, time);
     if (b.phase === 'victory' && !b.cine) this.drawVictory(ctx, b, theme, o.S, time);
@@ -149,25 +321,36 @@ export class HUD {
     if (demo) txt(ctx, 'OFFLINE DEMO  ~ OR GEAR = DIRECTOR', W / 2, H - 18, 9, 'rgba(255,255,255,0.45)', { outline: 0 });
   }
 
-  drawHall(ctx, hall, dt) {
+  drawHall(ctx, hall, dt, b, w) {
     const y = 96;
-    const h = 26;
-    ctx.fillStyle = 'rgba(6,4,16,0.72)';
+    const h = 28;
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, 'rgba(20,12,4,0.82)');
+    g.addColorStop(1, 'rgba(6,4,16,0.82)');
+    ctx.fillStyle = g;
     ctx.fillRect(0, y, W, h);
-    ctx.fillStyle = 'rgba(255,211,74,0.7)';
+    ctx.fillStyle = 'rgba(255,211,74,0.75)';
     ctx.fillRect(0, y, W, 2);
     ctx.fillRect(0, y + h - 2, W, 2);
-    let s;
-    if (!hall || !hall.length) s = 'HALL OF FAME  *  LAND THE FINAL BLOW TO GET CROWNED  *  ';
-    else s = 'HALL OF FAME  *  ' + hall.slice(0, 8).map((e) => `R${e.round} ${cleanName(e.name, 14).toUpperCase()}`).join('  *  ') + '  *  ';
-    const font = `11px ${PIX}`;
-    const tw = textWidth(ctx, s, font);
-    this.hallScroll = (this.hallScroll + dt * 50) % tw;
+    const font = `12px ${PIX}`;
+    const tk = this.ticker;
+    // rebuild only when a lap ends, so the text sprite cache is not churned
+    if (!tk.s || this.hallScroll + dt * 52 >= tk.tw) {
+      let s = !hall || !hall.length ? 'HALL OF FAME  *  LAND THE FINAL BLOW TO GET CROWNED  *  ' : 'HALL OF FAME  *  ' + hall.slice(0, 8).map((e) => `R${e.round} ${cleanName(e.name, 14).toUpperCase()}`).join('  *  ') + '  *  ';
+      if (b && w) {
+        const tips = this.botLines(b, w).slice(0, 4).map((l) => `${l[0]} = ${l[1]}`);
+        s += tips.join('  *  ') + '  *  ';
+      }
+      tk.s = s;
+      tk.tw = textWidth(ctx, s, font);
+      this.hallScroll = 0;
+    }
+    this.hallScroll = (this.hallScroll + dt * 52) % tk.tw;
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, y, W, h);
     ctx.clip();
-    for (let x = -this.hallScroll; x < W; x += tw) TEXT.draw(ctx, s, x, y + h / 2 + 1, font, 11, '#ffd34a', 0, '', 'left');
+    for (let x = -this.hallScroll; x < W; x += tk.tw) TEXT.draw(ctx, tk.s, x, y + h / 2 + 1, font, 12, '#ffd34a', 0, '', 'left');
     ctx.restore();
   }
 
@@ -286,6 +469,12 @@ export class HUD {
     add('SHARE THE LIVE', '10s SHIELD + BARRAGE', '#9ff6ff');
     add('TAP LIKE', 'HEART MISSILES AT THE ENEMY', '#ff5fa8');
     if (w.randonaut.enabled) add('TYPE FIRE ICE STORM LIGHT VOID', 'STEER THE NEXT ANOMALY', '#d36bff');
+    if (w.classes.enabled && w.classes.byChat) add('TYPE KNIGHT MAGE RANGER CLERIC OR ROGUE', 'CHOOSE YOUR CLASS', '#c48bff');
+    if (w.goals.enabled && b.crowd) {
+      const cr = b.crowd;
+      add(`${fmt(Math.max(1, cr.goalTarget('like') - cr.goals.like))} MORE ROOM LIKES`, 'HYPERDRIVE FOR BOTH TEAMS', '#ff5fa8');
+      add(`${Math.max(1, cr.goalTarget('follow') - cr.goals.follow)} MORE FOLLOWS`, `HAPPY HOUR: ${w.gifts.happyHourMul}X GIFTS`, '#7dff9a');
+    }
     if (w.commanders.enabled) add('TOP 3 GIFTERS', 'COMMANDER TURRET + CROWN', '#ffd34a');
     if (w.ascension.enabled && b.asc.level < 5) {
       const need = w.ascension.thresholds[b.asc.level] - b.asc.energy;
@@ -386,35 +575,47 @@ export class HUD {
   }
 
   // ---- legend: always-on "what do I do" panel. Rows flash when someone does it.
-  drawLegend(ctx, b, time) {
+  drawLegend(ctx, b, w, time) {
     const L = LEGEND;
     const rowH = 26;
     const h = 22 + LEGEND_ROWS.length * rowH + 4;
     roundRectPath(ctx, L.x, L.y, L.w, h, 8);
-    ctx.fillStyle = 'rgba(6,3,18,0.78)';
+    ctx.fillStyle = 'rgba(6,3,18,0.8)';
     ctx.fill();
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = holo(ctx, L.x, L.x + L.w, time, 0.8);
     ctx.stroke();
     txt(ctx, 'HOW TO PLAY', L.x + L.w / 2, L.y + 13, 11, '#e7b6ff', { outline: 0 });
+    const cr = b.crowd;
+    const goals = w.goals && w.goals.enabled && cr;
+    const clsId = CLASS_IDS[Math.floor(time / 2.2) % CLASS_IDS.length];
     LEGEND_ROWS.forEach(([key, verb, result, color], i) => {
+      if (key === 'cls' && !(w.classes.enabled && w.classes.byChat)) return;
       const y = L.y + 26 + i * rowH;
       const hit = b.legendHit[key] || 0;
+      if (key === 'cls') {
+        verb = CLASSES[clsId].name;
+        color = CLASSES[clsId].color;
+      }
       if (hit > 0) {
         ctx.fillStyle = rgba(color, 0.25 * hit);
         ctx.fillRect(L.x + 3, y - 1, L.w - 6, rowH - 2);
       }
-      icon(ctx, key, L.x + 7, y + 3, 3, color);
-      txt(ctx, verb, L.x + 32, y + 12, 11, color, { outline: 0, align: 'left' });
-      txt(ctx, '=' + result, L.x + 32 + (verb.length + 0.4) * 11, y + 12, 11, '#ffffff', { outline: 0, align: 'left' });
+      icon(ctx, key === 'cls' ? clsId : key, L.x + 7, y + 3, 3, color);
+      txt(ctx, verb, L.x + 32, y + 11, 11, color, { outline: 0, align: 'left' });
+      txt(ctx, '=' + result, L.x + 32 + (verb.length + 0.4) * 11, y + 11, 11, '#ffffff', { outline: 0, align: 'left' });
+      const gk = GOAL_ROW[key];
+      if (goals && gk) {
+        const base = cr.goalBase(gk);
+        const tgt = cr.goalTarget(gk);
+        const r = clamp((cr.goals[gk] - base) / Math.max(1, tgt - base), 0, 1);
+        const fl = cr.flash[gk] || 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        ctx.fillRect(L.x + 32, y + 20, L.w - 40, 3);
+        ctx.fillStyle = fl > 0 && Math.sin(time * 20) > 0 ? '#ffffff' : color;
+        ctx.fillRect(L.x + 32, y + 20, (L.w - 40) * r, 3);
+      }
     });
-    if (b.welcome) {
-      const a = clamp(Math.min(b.welcome.t / 0.3, (3.5 - b.welcome.t) / 0.5), 0, 1);
-      ctx.globalAlpha = a;
-      txt(ctx, `HI ${b.welcome.name.toUpperCase()}`, L.x + L.w / 2, L.y - 30, 13, '#ffd34a', { outline: 4 });
-      txt(ctx, 'TAP LIKE TO ATTACK', L.x + L.w / 2, L.y - 12, 11, '#ff9fd0', { outline: 4 });
-      ctx.globalAlpha = 1;
-    }
   }
 
   // ---- randonaut readouts: quantum-lock coordinates, claim race, timers
@@ -614,6 +815,7 @@ export class HUD {
         const r = u.elite > 0 ? ELITE_R : UNIT_R;
         ctx.globalAlpha = show;
         txt(ctx, cleanName(u.name, 9).toUpperCase(), u.x, u.y + r + 21, 11, u.elite > 0 ? '#ffd34a' : '#ffffff', { outline: 3 });
+        if (u.cls && u.label > 0.5) txt(ctx, CLASSES[u.cls].name, u.x, u.y + r + 34, 8, CLASSES[u.cls].color, { outline: 3 });
         ctx.globalAlpha = 1;
       }
     }
@@ -734,6 +936,18 @@ export class HUD {
       ctx.scale(sIn, sIn);
       const maxW = bn.anchor === 'C' ? 660 : 330;
       const t = fitText(ctx, bn.text, maxW, size, { orb: true });
+      if (!bn.small) {
+        // light streak behind the title, sweeping out from the center
+        const sw = maxW * 0.62 * clamp(bn.t / 0.35, 0, 1);
+        const lg = ctx.createLinearGradient(-sw, 0, sw, 0);
+        lg.addColorStop(0, rgba(bn.color, 0));
+        lg.addColorStop(0.5, rgba(bn.color, 0.38));
+        lg.addColorStop(1, rgba(bn.color, 0));
+        ctx.fillStyle = lg;
+        ctx.fillRect(-sw, -size * 0.42, sw * 2, size * 0.84);
+        ctx.fillStyle = rgba('#ffffff', 0.5 * a);
+        ctx.fillRect(-sw * 0.8, size * 0.5, sw * 1.6, 2);
+      }
       ctx.globalCompositeOperation = 'lighter';
       txt(ctx, t, 0, 0, size, bn.color, { orb: true, outline: size * 0.5, outlineColor: rgba(bn.color, 0.25) });
       ctx.globalCompositeOperation = 'source-over';
@@ -791,6 +1005,20 @@ export class HUD {
     ctx.globalAlpha = a;
     ctx.fillStyle = 'rgba(2,1,8,0.72)';
     ctx.fillRect(0, 0, W, H);
+    // confetti: positions are a pure function of index and time (no state)
+    const pal = [col.c1, col.c2 || col.c1, '#ffd34a', '#ffffff', '#ff5fa8'];
+    for (let i = 0; i < 70; i++) {
+      const sx = ((i * 97.3) % W) + Math.sin(t * 1.3 + i) * 22;
+      const fall = 90 + ((i * 37) % 80);
+      const sy = ((t * fall + (i * 53) % H) % (H + 40)) - 20;
+      const rot = t * (2 + (i % 5)) + i;
+      ctx.fillStyle = pal[i % pal.length];
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(rot);
+      ctx.fillRect(-4, -2 * Math.abs(Math.cos(rot * 1.7)) - 1, 8, 4 * Math.abs(Math.cos(rot * 1.7)) + 2);
+      ctx.restore();
+    }
     txt(ctx, 'VICTORY', W / 2, 330, 18, '#ffffff', { outline: 4 });
     const s = easeOutBack(clamp(t / 0.5, 0, 1));
     ctx.save();

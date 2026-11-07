@@ -174,6 +174,46 @@ layer both). Volume: Stream > Soundtrack volume. Uploaded files live in
 `/opt/arena/arcade/public/assets` and survive updates. Use music you have the
 rights to stream.
 
+## Auto messages for chat
+
+The director's **Auto messages for chat** card always shows a message for the
+current moment (rules, room goals, crowd votes, final blows). Tap **Copy
+message** and paste it into your LIVE chat; **Next message** shows another.
+This needs nothing else and posts nothing on its own.
+
+The on-screen **ARENA BOT** bubble (above the HOW TO PLAY panel) and the top
+ticker do the same thing inside the game picture, so every viewer sees them
+even if nobody types. Director > Live weights > Audience turns them on or off.
+
+### Optional: a bot account that posts into the chat by itself
+
+Read this first:
+- Sending chat goes through Euler Stream's servers, and the connector's source
+  says it "requires an API key & a paid plan" (message in
+  `node_modules/tiktok-live-connector`, `sendRoomChatFromEulerRoute`). Check
+  current plans and terms at https://www.eulerstream.com before paying.
+- The bot account's login cookie is sent to that service. Use a **secondary**
+  TikTok account, never your main one.
+- tiktok-live-connector is unofficial ("not a production-ready API", its README).
+  Whether TikTok restricts accounts that post automated messages: [citation needed].
+  Keep the gap long (the code never posts more than once per 45 s).
+
+Steps:
+1. On a computer, log in to tiktok.com in a browser with the **secondary** account.
+2. Open the browser's developer tools > Application (Chrome) or Storage
+   (Firefox) > Cookies > `https://www.tiktok.com`. Find `sessionid` and
+   `tt-target-idc` (the connector README, "Authenticated Connection", names
+   these two cookies).
+3. On the VM: `sudo nano /etc/arena/arena.env` and add three lines:
+   `SIGN_API_KEY=...`, `CHATBOT_SESSIONID=...`, `CHATBOT_TT_TARGET_IDC=...`
+   Type them on the VM yourself; do not paste them into a chat with anyone.
+4. `sudo systemctl restart arena-server`
+5. Director > Live weights > Audience > tick **TikTok chat bot**. The card
+   under the message shows `chat bot: connected` and a posted count. If it says
+   `needs a paid sign plan`, the Euler key does not allow sending.
+6. Logging the secondary account out of TikTok in the browser ends that session
+   and stops the bot; delete the lines from `arena.env` too.
+
 ## Rehearse the broadcast without TikTok
 
 Streams to a stand-in receiver on the VM for 25 seconds and reports the game

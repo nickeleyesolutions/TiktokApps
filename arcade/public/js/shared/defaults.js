@@ -102,6 +102,28 @@ export const DEFAULT_WEIGHTS = {
   legend: { enabled: true },
   // avatars drift around their own half instead of standing in rows
   units: { roam: true, roamSpeed: 55, roamRadius: 1 },
+  // classes: hp / atb (turn speed) / dmg are multipliers on the base unit
+  classes: {
+    enabled: true,
+    byChat: true, // typing KNIGHT, MAGE, RANGER, CLERIC or ROGUE switches class
+    switchCooldown: 12,
+    knight: { hp: 1.6, atb: 0.9, dmg: 1, armor: 0.3 },
+    mage: { hp: 0.9, atb: 0.8, dmg: 1.5, shots: 3 },
+    ranger: { hp: 1, atb: 1.3, dmg: 0.85 },
+    cleric: { hp: 1.1, atb: 1, dmg: 0.6, heal: 7 },
+    rogue: { hp: 0.85, atb: 1.1, dmg: 1, every: 3, crit: 2.6 },
+  },
+  // crowd votes on the next event (majority wins, ties go to the first option)
+  polls: { enabled: true, firstDelay: 60, everySeconds: 150, durationSeconds: 25, minVotes: 2, partySeconds: 30, options: ['boss', 'rain', 'party', 'rift', 'warp', 'rally'] },
+  // shared room goals; each step rewards both teams
+  goals: {
+    enabled: true,
+    like: { ladder: [500, 1500, 3000, 6000, 10000], after: 5000, seconds: 15, energy: 200 },
+    follow: { ladder: [3, 8, 15, 25], after: 10, seconds: 25, energy: 150 },
+    share: { ladder: [2, 5, 10], after: 5, seconds: 10, energy: 150 },
+  },
+  // auto messages: on-screen host bot (free) and the optional TikTok chat bot (server, opt-in)
+  bot: { onScreen: true, everySeconds: 22, chat: false, chatEverySeconds: 75 },
   callouts: { enabled: true, window: 4 }, // DOUBLE / TRIPLE / MULTI KILL, RAMPAGE
   // names containing any of these (case-insensitive) show as VIEWER and are never spoken
   moderation: { blockedWords: ['fuck', 'shit', 'bitch', 'cunt', 'nigg', 'fag', 'retard', 'whore', 'slut', 'pussy', 'nazi', 'hitler', 'rape'], replaceName: 'VIEWER' },
@@ -112,7 +134,7 @@ export const DEFAULT_WEIGHTS = {
   round: { intermissionSeconds: 8 },
   // soundtrack: a file from public/assets (mp3/m4a/ogg/wav). While it plays,
   // the built-in chiptune stays off unless layerChiptune is on.
-  audio: { master: 0.6, tts: true, ttsMinGapSeconds: 3, music: true, musicVolume: 0.35, soundtrack: '', soundtrackVolume: 0.5, layerChiptune: false },
+  audio: { master: 0.6, tts: true, ttsMinGapSeconds: 3, voice: 'female', voicePitch: 1.15, voiceRate: 1.06, music: true, musicVolume: 0.35, soundtrack: '', soundtrackVolume: 0.5, layerChiptune: false },
   hud: { safeZones: false, feed: true, damageNumbers: true, names: true },
   owners: { usernames: [], allowModerators: true, trustAnchor: true, prefix: '!' },
   dev: { autoHotReload: false },
@@ -236,8 +258,21 @@ export const SCHEMA = [
   { group: 'Stream', path: 'guide.cardSeconds', label: 'Rotating card time (s)', min: 2, max: 12, step: 0.5 },
   { group: 'Stream', path: 'guide.everySeconds', label: 'Guide every (s)', min: 6, max: 60, step: 1 },
   { group: 'Stream', path: 'guide.showSeconds', label: 'Guide visible (s)', min: 2, max: 10, step: 1 },
+  { group: 'Audience', path: 'classes.enabled', label: 'Unit classes', type: 'toggle' },
+  { group: 'Audience', path: 'classes.byChat', label: 'Chat picks class (KNIGHT, MAGE...)', type: 'toggle' },
+  { group: 'Audience', path: 'polls.enabled', label: 'Crowd votes', type: 'toggle' },
+  { group: 'Audience', path: 'polls.everySeconds', label: 'Vote every (s)', min: 60, max: 600, step: 10 },
+  { group: 'Audience', path: 'polls.durationSeconds', label: 'Vote length (s)', min: 10, max: 60, step: 5 },
+  { group: 'Audience', path: 'goals.enabled', label: 'Room goals (likes, follows, shares)', type: 'toggle' },
+  { group: 'Audience', path: 'bot.onScreen', label: 'On-screen host bot messages', type: 'toggle' },
+  { group: 'Audience', path: 'bot.everySeconds', label: 'Host bot every (s)', min: 8, max: 90, step: 1 },
+  { group: 'Audience', path: 'bot.chat', label: 'TikTok chat bot (needs server setup)', type: 'toggle' },
+  { group: 'Audience', path: 'bot.chatEverySeconds', label: 'Chat bot every (s)', min: 45, max: 600, step: 15 },
   { group: 'Stream', path: 'audio.master', label: 'Volume', min: 0, max: 1, step: 0.05 },
   { group: 'Stream', path: 'audio.tts', label: 'TTS announcer', type: 'toggle' },
+  { group: 'Stream', path: 'audio.voice', label: 'Announcer voice', type: 'select', options: ['female', 'male', 'auto'] },
+  { group: 'Stream', path: 'audio.voicePitch', label: 'Announcer pitch', min: 0.6, max: 1.8, step: 0.05 },
+  { group: 'Stream', path: 'audio.voiceRate', label: 'Announcer speed', min: 0.7, max: 1.5, step: 0.02 },
   { group: 'Stream', path: 'audio.music', label: 'Chiptune music', type: 'toggle' },
   { group: 'Stream', path: 'audio.musicVolume', label: 'Music volume', min: 0, max: 1, step: 0.05 },
   { group: 'Stream', path: 'audio.soundtrackVolume', label: 'Soundtrack volume', min: 0, max: 1, step: 0.05 },

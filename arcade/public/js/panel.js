@@ -151,6 +151,7 @@ export function buildPanel(root, api) {
       }, 'g'),
       btn('Happy hour 2x', () => api.cmd({ type: 'happyHour' })),
       btn('Boss invasion', () => api.cmd({ type: 'boss' })),
+      btn('Crowd vote now', () => api.cmd({ type: 'poll' })),
       btn('Reset round', () => api.cmd({ type: 'resetRound' })),
       btn('Hot reload stage', () => api.cmd({ type: 'hotReload' })),
     ]),
@@ -222,6 +223,11 @@ export function buildPanel(root, api) {
       cb.addEventListener('change', () => api.patch(s.path, cb.checked));
       box.appendChild(el('label', { class: 'tg' }, [s.label, cb]));
       controls.push({ path: s.path, set: (v) => (cb.checked = !!v) });
+    } else if (s.type === 'select') {
+      const sel = el('select', {}, s.options.map((o) => el('option', { value: o, text: o })));
+      sel.addEventListener('change', () => api.patch(s.path, sel.value));
+      box.appendChild(el('label', { class: 'rng' }, [s.label, sel]));
+      controls.push({ path: s.path, set: (v) => (sel.value = String(v)) });
     } else {
       const out = el('output');
       const r = el('input', { type: 'range', min: s.min, max: s.max, step: s.step });

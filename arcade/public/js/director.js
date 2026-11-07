@@ -55,7 +55,7 @@ function teamHtml(t, color) {
 socket.on('status', (s) => {
   $('tA').innerHTML = teamHtml(s.A, '#3ae4ff');
   $('tB').innerHTML = teamHtml(s.B, '#ff3d5e');
-  $('meta').textContent = `D${s.dimension || 1} (${s.energy || 0} energy)${s.rift && s.rift.phase ? ' | rift ' + s.rift.type + ' ' + s.rift.phase + ' ' + s.rift.A + '/' + s.rift.B + ' of ' + s.rift.goal : s.rift ? ' | next rift ' + s.rift.next + 's' : ''} | round ${s.round} ${s.phase}${s.cine ? ' [' + s.cine + ']' : ''} | ${s.fps} fps @ ${s.res} | post ${s.post ? 'on' : 'off'} | sound ${s.audio ? 'on' : 'off (click the stage once)'} | seekers ${s.proj} | particles ${s.parts}${s.perf ? ' | cpu ' + s.perf.total + ' ms (battle ' + s.perf.world + ', hud ' + s.perf.hud + ')' : ''}${s.quality ? ' | auto-quality ' + s.quality : ''}${s.happyHour ? ' | happy hour ' + s.happyHour + 's' : ''}${s.boss ? ' | boss ' + s.boss.hp : ''}`;
+  $('meta').textContent = `D${s.dimension || 1} (${s.energy || 0} energy)${s.rift && s.rift.phase ? ' | rift ' + s.rift.type + ' ' + s.rift.phase + ' ' + s.rift.A + '/' + s.rift.B + ' of ' + s.rift.goal : s.rift ? ' | next rift ' + s.rift.next + 's' : ''} | round ${s.round} ${s.phase}${s.cine ? ' [' + s.cine + ']' : ''} | ${s.fps} fps @ ${s.res} | post ${s.post ? 'on' : 'off'} | sound ${s.audio ? 'on' : 'off (click the stage once)'} | seekers ${s.proj} | particles ${s.parts}${s.perf ? ' | cpu ' + s.perf.total + ' ms (battle ' + s.perf.world + ', hud ' + s.perf.hud + ')' : ''}${s.quality ? ' | auto-quality ' + s.quality : ''}${s.happyHour ? ' | happy hour ' + s.happyHour + 's' : ''}${s.boss ? ' | boss ' + s.boss.hp : ''}${s.crowd && s.crowd.poll ? ' | vote ' + s.crowd.poll.t + 's ' + s.crowd.poll.opts.map((o) => o[0] + ' ' + o[1]).join(', ') : ''}${s.crowd ? ' | goals ' + s.crowd.goals.map((g) => g[0] + ' ' + g[1] + '/' + g[2]).join(', ') : ''}`;
 });
 
 socket.on('bridge', (b) => {
@@ -124,3 +124,25 @@ $('upBtn').onclick = async () => {
     $('upMeta').textContent = `Upload failed: ${e.message}`;
   }
 };
+
+socket.on('chatbot', (c) => {
+  if (c.suggestion) $('botMsg').textContent = c.suggestion;
+  const bot = c.configured ? `chat bot: ${c.status}${c.sent ? ' | posted ' + c.sent : ''}${c.error ? ' | ' + c.error : ''}` : 'chat bot: not set up on the server (copy and paste works without it)';
+  $('botStatus').textContent = bot;
+});
+$('botCopy').onclick = async () => {
+  const t = $('botMsg').textContent;
+  try {
+    await navigator.clipboard.writeText(t);
+    $('botCopy').textContent = 'Copied';
+  } catch {
+    const r = document.createRange();
+    r.selectNodeContents($('botMsg'));
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    $('botCopy').textContent = 'Selected: copy it';
+  }
+  setTimeout(() => ($('botCopy').textContent = 'Copy message'), 1500);
+};
+$('botNext').onclick = () => socket.emit('chatbot:next');

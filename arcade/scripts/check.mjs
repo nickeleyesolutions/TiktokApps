@@ -124,7 +124,8 @@ const theme = THEMES['azure-inferno'];
     send('chat', { user: user('p1'), content: 'a', userIdentity: {} });
     const sub = b.users.get('s1').unit;
     const plain = b.users.get('p1').unit;
-    assert.equal(sub.max, plain.max * weights.subs.hpMul);
+    const base = (u) => u.max / b.clsStat(u.rec, 'hp');
+    assert.ok(Math.abs(base(sub) - base(plain) * weights.subs.hpMul) < 1e-9);
   });
   test('underdog multiplier applies only past the HP gap', () => {
     assert.equal(b.underdogMul('A'), 1);
@@ -242,6 +243,49 @@ const theme = THEMES['azure-inferno'];
     b.koUnit(victim, { team: 'A', kind: 'bolt' });
     assert.equal(b.teams.B.bounty, null);
     assert.equal(b.teams.A.stacks.bravery, before + weights.bounty.braveryReward);
+  });
+  test('classes: id picks a stable class, chat word switches it, knight armor applies', () => {
+    send('chat', { user: user('c9'), content: 'hello', userIdentity: {} });
+    const rec = b.users.get('c9');
+    const first = rec.cls;
+    assert.ok(first);
+    send('chat', { user: user('c9'), content: 'knight', userIdentity: {} });
+    assert.equal(rec.cls, 'knight');
+    assert.equal(rec.unit.cls, 'knight');
+    assert.ok(Math.abs(rec.unit.max - weights.combat.unitHp * weights.classes.knight.hp) < 1e-9);
+    const hp = rec.unit.hp;
+    b.damageUnit(rec.unit, 10, { team: 'B', kind: 'bolt' });
+    assert.ok(Math.abs(hp - rec.unit.hp - 10 * (1 - weights.classes.knight.armor)) < 1e-9);
+    send('chat', { user: user('c9'), content: 'mage', userIdentity: {} });
+    assert.equal(rec.cls, 'knight', 'switch cooldown holds');
+  });
+  test('crowd vote: majority wins, one vote per viewer', () => {
+    const cr = b.crowd;
+    cr.openPoll();
+    const [o1, o2] = cr.poll.opts;
+    for (const id of ['v10', 'v11']) send('chat', { user: user(id), content: o2.word.toLowerCase(), userIdentity: {} });
+    send('chat', { user: user('v12'), content: o1.word.toLowerCase(), userIdentity: {} });
+    send('chat', { user: user('v12'), content: o1.word.toLowerCase(), userIdentity: {} });
+    assert.equal(cr.poll.votes[o2.id], 2);
+    assert.equal(cr.poll.votes[o1.id], 1);
+    let applied = null;
+    const orig = cr.apply.bind(cr);
+    cr.apply = (o) => (applied = o.id);
+    cr.update(weights.polls.durationSeconds + 1);
+    cr.apply = orig;
+    assert.equal(applied, o2.id);
+    assert.equal(cr.poll, null);
+  });
+  test('room goals: each like step rewards both teams once', () => {
+    const cr = b.crowd;
+    const need = cr.goalTarget('like') - cr.goals.like;
+    b.teams.A.buffs.hyper = 0;
+    cr.add('like', need - 1);
+    assert.equal(b.teams.A.buffs.hyper, 0);
+    cr.add('like', 1);
+    assert.equal(b.teams.A.buffs.hyper, weights.goals.like.seconds);
+    assert.equal(b.teams.B.buffs.hyper, weights.goals.like.seconds);
+    assert.equal(cr.step.like, 1);
   });
 }
 const env = {

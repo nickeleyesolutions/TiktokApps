@@ -18,6 +18,7 @@ import { W, TAU, clamp, rand, damp, easeOutBack, cleanName, speakable, fmt, rgba
 import { avatarImage, pixelAvatar, unitSprite } from './sprites.js';
 import { HyperCube, axisColors } from './hyper.js';
 import { Randonaut } from './randonaut.js';
+import { Crowd } from './crowd.js';
 
 // Dimension ladder. Index = level - 1.
 export const DIMENSIONS = [
@@ -41,6 +42,61 @@ const nice = (v) => {
   const m = Math.pow(10, Math.max(0, Math.floor(Math.log10(Math.max(1, v))) - 1));
   return Math.max(1, Math.round(v / m) * m);
 };
+
+// Unit classes. Every viewer gets one from a hash of their id (so it is the
+// same every visit), and can switch by typing the class word in chat.
+// Classes only shape free actions (turn speed, bolts, healing); gifts are
+// unaffected. Numbers live in weights.classes.
+export const CLASSES = {
+  knight: { name: 'KNIGHT', color: '#9fc8ff', words: ['knight', 'tank', 'shield'], icon: ['.XXX.', 'XXXXX', 'XX.XX', 'XXXXX', '.XXX.', '..X..'] },
+  mage: { name: 'MAGE', color: '#c48bff', words: ['mage', 'wizard', 'magic'], icon: ['..X..', '.XXX.', 'XXXXX', '.X.X.', 'X...X', '.....'] },
+  ranger: { name: 'RANGER', color: '#7dff9a', words: ['ranger', 'archer', 'bow'], icon: ['...XX', '..X.X', '.X.X.', 'X.X..', '.X...', 'X....'] },
+  cleric: { name: 'CLERIC', color: '#fff2a8', words: ['cleric', 'healer', 'heal', 'priest'], icon: ['..X..', '..X..', 'XXXXX', '..X..', '..X..', '..X..'] },
+  rogue: { name: 'ROGUE', color: '#ff9f4a', words: ['rogue', 'assassin', 'ninja', 'dagger'], icon: ['....X', '...X.', '..X..', 'XX...', '.X...', 'X.X..'] },
+};
+export const CLASS_IDS = Object.keys(CLASSES);
+const CLASS_WORD = new Map();
+for (const id of CLASS_IDS) for (const wd of CLASSES[id].words) CLASS_WORD.set(wd, id);
+function hashId(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+export function classFor(id) {
+  return CLASS_IDS[hashId(String(id)) % CLASS_IDS.length];
+}
+
+// small cached badge per class and render scale
+const CHIPS = new Map();
+function classChip(id, S) {
+  const k = id + '|' + S;
+  let c = CHIPS.get(k);
+  if (c !== undefined) return c;
+  if (typeof document === 'undefined') return null;
+  c = document.createElement('canvas');
+  c.width = c.height = Math.ceil(16 * S);
+  const x = c.getContext('2d');
+  x.scale(S, S);
+  const cl = CLASSES[id];
+  x.fillStyle = '#05030c';
+  x.beginPath();
+  x.arc(8, 8, 8, 0, TAU);
+  x.fill();
+  x.strokeStyle = cl.color;
+  x.lineWidth = 1.5;
+  x.beginPath();
+  x.arc(8, 8, 7, 0, TAU);
+  x.stroke();
+  x.fillStyle = cl.color;
+  const px = 1.6;
+  const ox = 8 - (5 * px) / 2;
+  const oy = 8 - (6 * px) / 2;
+  cl.icon.forEach((row, j) => {
+    for (let i = 0; i < row.length; i++) if (row[i] === 'X') x.fillRect(ox + i * px, oy + j * px, px, px);
+  });
+  CHIPS.set(k, c);
+  return c;
+}
 
 export const UNIT_R = 24;
 // Stacks go to x99 for the show, but their effect has a soft cap so a long
@@ -144,9 +200,11 @@ export class Battle {
     this.cages = { A: new HyperCube(4), B: new HyperCube(4) };
     this.rando = new Randonaut(this);
     this.rando.schedule();
-    this.legendHit = { like: 0, chat: 0, side: 0, share: 0, follow: 0, gift: 0 };
+    this.legendHit = { like: 0, chat: 0, side: 0, share: 0, follow: 0, gift: 0, cls: 0 };
     this.welcome = null; // { name, t }
     this.welcomeT = 0;
+    this.classCount = {};
+    this.crowd = new Crowd(this);
   }
 
   get w() {
@@ -188,7 +246,7 @@ export class Battle {
   ensureUser(u) {
     let r = this.users.get(u.id);
     if (!r) {
-      r = { id: u.id, uid: u.uid, name: this.safeName(u.name || u.uid), avatar: u.avatar || '', team: null, damage: 0, rd: 0, coins: 0, unit: null, lastRally: -9, koAt: -99, sub: !!u.isSub, follower: !!u.isFollower };
+      r = { id: u.id, uid: u.uid, name: this.safeName(u.name || u.uid), avatar: u.avatar || '', team: null, damage: 0, rd: 0, coins: 0, unit: null, lastRally: -9, koAt: -99, sub: !!u.isSub, follower: !!u.isFollower, cls: classFor(u.id), clsAt: -99 };
       this.users.set(u.id, r);
       if (this.users.size > 6000) this.pruneUsers();
     } else {
@@ -232,6 +290,40 @@ export class Battle {
     return best;
   }
 
+  // ---------------------------------------------------------------- classes
+  clsStat(rec, k) {
+    const w = this.w;
+    if (!rec || !w.classes.enabled) return 1;
+    const c = w.classes[rec.cls];
+    return c && c[k] != null ? c[k] : 1;
+  }
+
+  setClass(rec, id) {
+    const w = this.w;
+    if (!w.classes.enabled || !w.classes.byChat || !CLASSES[id]) return false;
+    if (rec.cls === id && (!rec.unit || rec.unit.cls === id)) return false;
+    if (this.time - rec.clsAt < w.classes.switchCooldown) return false;
+    rec.cls = id;
+    rec.clsAt = this.time;
+    const u = rec.unit;
+    if (u && u.alive) {
+      const ratio = u.hp / u.max;
+      u.cls = id;
+      u.max = w.combat.unitHp * (rec.sub ? w.subs.hpMul : 1) * this.clsStat(rec, 'hp');
+      u.hp = Math.max(1, u.max * ratio);
+      u.hits = 0;
+      u.pop = 1;
+      u.label = 3;
+      if (u.slot >= 0) {
+        this.fx.ring(u.x, u.y, CLASSES[id].color, 6, 46, 0.5, 3);
+        this.fx.text(u.x, u.y - 44, CLASSES[id].name, CLASSES[id].color, 13, true);
+      }
+    }
+    this.classCount[id] = (this.classCount[id] || 0) + 1;
+    this.legendHit.cls = 1;
+    return true;
+  }
+
   // ------------------------------------------------------------------ units
   maxSlots() {
     return clamp(Math.round(this.w.combat.maxSlots), 2, 12);
@@ -261,8 +353,11 @@ export class Battle {
       npc,
       team: key,
       name: npc ? 'DRONE-' + String(this.npcSeq % 100).padStart(2, '0') : rec.name,
-      hp: npc ? w.npc.hp : w.combat.unitHp * (rec && rec.sub ? w.subs.hpMul : 1),
-      max: npc ? w.npc.hp : w.combat.unitHp * (rec && rec.sub ? w.subs.hpMul : 1),
+      hp: npc ? w.npc.hp : w.combat.unitHp * (rec && rec.sub ? w.subs.hpMul : 1) * this.clsStat(rec, 'hp'),
+      max: npc ? w.npc.hp : w.combat.unitHp * (rec && rec.sub ? w.subs.hpMul : 1) * this.clsStat(rec, 'hp'),
+      cls: npc || !w.classes.enabled ? null : rec.cls,
+      hits: 0,
+      pop: 0,
       atb: rand(0, 0.6),
       elite: 0,
       shield: 0,
@@ -302,6 +397,7 @@ export class Battle {
       u.x = t.key === 'A' ? 170 + Math.random() * 150 : W - 170 - Math.random() * 150;
       u.y = 380 + Math.random() * 440;
     } else if (u.x < 0 || u.x > W) u.y = p.y;
+    u.pop = 1;
     this.fx.ring(this.w.units.roam ? u.x : p.x, this.w.units.roam ? u.y : p.y, this.col(t.key).c1, 4, 42, 0.45, 3);
     if (!u.npc) this.sfx.play('join');
   }
@@ -394,8 +490,9 @@ export class Battle {
     }
     let best = null;
     let bs = 1e9;
+    const hunter = u.cls === 'ranger';
     for (const v of e.units) {
-      const s = Math.abs(v.y - u.y) + v.hp * 2;
+      const s = hunter ? v.hp : Math.abs(v.y - u.y) + v.hp * 2;
       if (s < bs) {
         bs = s;
         best = v;
@@ -482,6 +579,7 @@ export class Battle {
       this.fx.ring(u.x, u.y, '#9ff6ff', UNIT_R, UNIT_R + 10, 0.2, 2);
     }
     if (t.staggerTime > 0) dmg *= this.w.stagger.damageMul;
+    if (u.cls === 'knight') dmg *= 1 - this.w.classes.knight.armor;
     u.hp -= dmg;
     u.flash = 0.1;
     this.credit(src, dmg);
@@ -1021,7 +1119,9 @@ export class Battle {
     if (w.chat.joinA.includes(first)) key = 'A';
     else if (w.chat.joinB.includes(first)) key = 'B';
     if (key && !rec.team) this.addEnergy(w.ascension.perJoin);
+    const clsWord = CLASS_WORD.get(first);
     this.rando.onChat(e.text);
+    const voted = this.crowd.onChat(rec, first);
     this.legendHit[key ? 'side' : 'chat'] = 1;
     // any message enlists a newcomer on the underdog side (typing A/B picks a side instead)
     if (!key && !rec.team && w.chat.autoJoinAny && this.phase === 'battle') {
@@ -1030,6 +1130,11 @@ export class Battle {
     }
     const team = rec.team || key;
     if (team) this.riftProgress(team, 'chat', 1);
+    if (clsWord && !voted) {
+      if (!rec.team && this.phase === 'battle') this.join(rec, this.underdog());
+      this.setClass(rec, clsWord);
+      if (!rec.unit && rec.team && this.phase === 'battle') this.join(rec, rec.team);
+    }
     if (key) return this.join(rec, key);
     if (rec.unit && rec.unit.alive) this.rally(rec);
   }
@@ -1052,6 +1157,7 @@ export class Battle {
       this.volley(t, u ? u.x : t.core.x, u ? u.y : t.core.y, n, (e.count * w.likes.damagePerLike) / n, src, 0.05, '#ff5fa8');
     }
     this.act.like += e.count;
+    this.crowd.add('like', e.count);
     this.addEnergy(e.count * w.ascension.perLike);
     this.riftProgress(key, 'like', e.count);
     if (this.phase === 'battle' && enemy.staggerTime <= 0 && enemy.staggerImmune <= 0) {
@@ -1079,6 +1185,7 @@ export class Battle {
     const rec = this.ensureUser(e.user);
     this.addEnergy(this.w.ascension.perShare);
     this.legendHit.share = 1;
+    this.crowd.add('share', 1);
     const u = this.ensureFighter(rec);
     const t = this.teams[rec.team];
     if (u) {
@@ -1094,6 +1201,8 @@ export class Battle {
 
   onFollow(e) {
     const rec = this.ensureUser(e.user);
+    if (!rec.followed) this.crowd.add('follow', 1);
+    rec.followed = true;
     rec.follower = true;
     this.legendHit.follow = 1;
     const key = rec.team || this.underdog();
@@ -1238,6 +1347,19 @@ export class Battle {
       case 'boss':
         this.spawnBoss();
         break;
+      case 'poll':
+        // a rift that is only counting down steps aside; a running one finishes first
+        if (this.rift.phase === 'incoming') {
+          this.rift.phase = 'idle';
+          this.rift.t = 20;
+        }
+        if (!this.crowd.poll && this.phase === 'battle') {
+          if (this.crowd.canPoll()) {
+            this.crowd.openPoll();
+            this.crowd.pollT = w.polls.everySeconds;
+          } else this.crowd.pollT = 0;
+        }
+        break;
       case 'resetRound':
         this.resetRound(true);
         break;
@@ -1291,6 +1413,7 @@ export class Battle {
     this.updateAscension(dt);
     this.updateRift(dt);
     this.rando.update(dt);
+    this.crowd.update(dt);
     for (const k in this.legendHit) this.legendHit[k] = Math.max(0, this.legendHit[k] - dtReal * 2);
     if (this.welcome && (this.welcome.t += dtReal) > 3.5) this.welcome = null;
 
@@ -1369,6 +1492,7 @@ export class Battle {
       u.y += (p.y - u.y) * k;
     }
     u.flash = Math.max(0, u.flash - dt);
+    if (u.pop > 0) u.pop = Math.max(0, u.pop - dt * 2.5);
     u.label -= dt;
     u.spin += dt * (u.elite > 0 ? 4 : 1);
     if (u.shield > 0) u.shield -= dt;
@@ -1382,18 +1506,42 @@ export class Battle {
       }
     }
     if (this.cine || this.rando.frozen(t.key)) return; // turn bars pause during cinematics and ICE
-    const haste = (1 + soft(t.stacks.haste) * w.atb.hastePerStack + (u.elite > 0 ? 0.35 : 0)) * (u.rec && u.rec.sub ? w.subs.atbMul : 1) * DIM_ATB[this.asc.level - 1] * (t.buffs.hyper > 0 ? w.rifts.hyperMul : 1);
+    const cw = u.cls ? w.classes[u.cls] : null;
+    const haste = (1 + soft(t.stacks.haste) * w.atb.hastePerStack + (u.elite > 0 ? 0.35 : 0)) * (u.rec && u.rec.sub ? w.subs.atbMul : 1) * DIM_ATB[this.asc.level - 1] * (t.buffs.hyper > 0 ? w.rifts.hyperMul : 1) * (cw ? cw.atb : 1);
     u.atb += (dt * haste) / Math.max(0.5, w.atb.baseSeconds);
     if (u.atb >= 1) {
       u.atb = 0;
       const target = this.pickTarget(t, u);
       if (!target) return;
       u.lunge = 1;
-      const dmg = (u.npc ? w.npc.damage : w.combat.unitDamage) * (1 + soft(t.stacks.bravery) * w.stacks.braveryPerStack) * (u.elite > 0 ? 1.8 : 1);
+      u.hits++;
+      let dmg = (u.npc ? w.npc.damage : w.combat.unitDamage) * (1 + soft(t.stacks.bravery) * w.stacks.braveryPerStack) * (u.elite > 0 ? 1.8 : 1) * (cw ? cw.dmg : 1);
+      const src = { team: t.key, rec: u.rec, kind: 'bolt' };
+      const ccol = u.cls ? CLASSES[u.cls].color : this.col(t.key).c1;
+      if (u.cls === 'mage') {
+        // three arcane seekers instead of one bolt
+        this.volley(t, u.x, u.y, cw.shots, dmg / cw.shots, { team: t.key, rec: u.rec, kind: 'turret' }, 0.06, ccol);
+        this.sfx.play('laser');
+        return;
+      }
+      if (u.cls === 'cleric') this.clericHeal(t, u, cw);
+      if (u.cls === 'rogue' && u.hits % cw.every === 0) {
+        dmg *= cw.crit;
+        if (u.slot >= 0) this.fx.text(u.x, u.y - 40, 'BACKSTAB', ccol, 11, true);
+      }
       const info = this.targetInfo(target);
-      if (info.alive) this.proj.bolt(u.x + t.dir * 22, u.y, info.x, info.y, target, dmg, { team: t.key, rec: u.rec, kind: 'bolt' }, this.col(t.key).c1, w.combat.boltSpeed);
+      if (info.alive) this.proj.bolt(u.x + t.dir * 22, u.y, info.x, info.y, target, dmg, src, u.cls === 'rogue' || u.cls === 'ranger' ? ccol : this.col(t.key).c1, w.combat.boltSpeed * (u.cls === 'ranger' ? 1.35 : 1));
       this.sfx.play('laser');
     }
+  }
+
+  clericHeal(t, u, cw) {
+    let best = null;
+    for (const v of t.units) if (v.alive && v.slot >= 0 && v.hp < v.max && (!best || v.hp / v.max < best.hp / best.max)) best = v;
+    if (!best) return;
+    best.hp = Math.min(best.max, best.hp + cw.heal);
+    this.fx.ring(best.x, best.y, '#7dff9a', 4, 30, 0.35, 2);
+    if (this.fx.p.length < 2500) for (let i = 0; i < 4; i++) this.fx.particle(best.x + rand(-10, 10), best.y + 6, rand(-14, 14), rand(-90, -50), 0.7, 3, '#b9ffc8', 0, 1);
   }
 
   // Avatars float around their own half: each picks a wander point in its
@@ -1620,8 +1768,22 @@ export class Battle {
     const lunge = u.lunge > 0 ? Math.sin(Math.PI * (1 - u.lunge)) * 26 * t.dir : 0;
     const x = u.x + lunge;
     const y = u.y;
-    const size = u.sprite.width / S;
+    // ground shadow + team glow on the floor
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + r + 4, r * 0.85, r * 0.22, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = rgba(u.cls ? CLASSES[u.cls].color : col.c1, 0.16);
+    ctx.beginPath();
+    ctx.ellipse(x, y + r + 4, r * 1.15, r * 0.32, 0, 0, TAU);
+    ctx.fill();
+    const pop = u.pop > 0 ? easeOutBack(1 - u.pop) : 1;
+    const size = (u.sprite.width / S) * pop;
     ctx.drawImage(u.sprite, x - size / 2, y - size / 2, size, size);
+    if (u.cls) {
+      const chip = classChip(u.cls, S);
+      if (chip) ctx.drawImage(chip, x + r * 0.62 - 8, y - r * 0.62 - 8, 16, 16);
+    }
     if (u.flash > 0) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -2104,7 +2266,7 @@ export class Battle {
       return;
     }
     const gate = this.teams.A.gate.active || this.teams.B.gate.active;
-    if (r.phase === 'idle' && (gate || this.cine)) return; // never start on top of a finisher
+    if (r.phase === 'idle' && (gate || this.cine || this.crowd.poll)) return; // never start on top of a finisher or a vote
     r.t -= dt;
     if (r.phase === 'idle' && r.t <= 0) this.riftIncoming();
     else if (r.phase === 'incoming') {
@@ -2191,15 +2353,16 @@ export class Battle {
     const users = [];
     for (const r of this.users.values()) {
       if (!r.team && !r.coins) continue;
-      users.push({ id: r.id, uid: r.uid, name: r.name, avatar: r.avatar, team: r.team, damage: r.damage, rd: r.rd, coins: r.coins, sub: r.sub, follower: r.follower, alive: !!(r.unit && r.unit.alive), hp: r.unit ? r.unit.hp : 0, elite: r.unit ? r.unit.elite : 0 });
+      users.push({ id: r.id, uid: r.uid, name: r.name, avatar: r.avatar, team: r.team, damage: r.damage, rd: r.rd, coins: r.coins, sub: r.sub, follower: r.follower, cls: r.cls, alive: !!(r.unit && r.unit.alive), hp: r.unit ? r.unit.hp : 0, elite: r.unit ? r.unit.elite : 0 });
       if (users.length > 400) break;
     }
-    return { round: this.round, A: team(this.teams.A), B: team(this.teams.B), users };
+    return { round: this.round, A: team(this.teams.A), B: team(this.teams.B), users, crowd: this.crowd.serialize() };
   }
 
   restore(s) {
     if (!s || !s.A) return;
     this.round = s.round || 1;
+    this.crowd.restore(s.crowd);
     for (const k of ['A', 'B']) {
       const t = this.teams[k];
       const d = s[k];
@@ -2214,6 +2377,7 @@ export class Battle {
     for (const u of s.users || []) {
       const rec = this.ensureUser({ id: u.id, uid: u.uid, name: u.name, avatar: u.avatar, isSub: u.sub, isFollower: u.follower });
       Object.assign(rec, { team: u.team, damage: u.damage || 0, rd: u.rd || 0, coins: u.coins || 0 });
+      if (u.cls && CLASSES[u.cls]) rec.cls = u.cls;
       if (u.alive && u.team) {
         const unit = this.spawnUnit(u.team, rec, false);
         if (unit) {
@@ -2257,6 +2421,8 @@ export class Battle {
       happyHour: Math.max(0, Math.ceil(this.happyHour)),
       boss: this.boss ? { hp: Math.round(this.boss.hp), t: Math.ceil(this.boss.t) } : null,
       cine: this.cine ? this.cine.type : null,
+      crowd: this.crowd.status(),
+      classes: this.classCount,
       dimension: this.asc.level,
       randonaut: this.rando.status(),
       energy: Math.round(this.asc.energy),

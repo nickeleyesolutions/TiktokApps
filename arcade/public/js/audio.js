@@ -182,12 +182,65 @@ export class Sfx {
   }
 }
 
+// Announcer. Prefers a female voice when the browser has one installed.
+// Voice names differ per OS (Windows: Zira, Aria, Jenny; macOS: Samantha,
+// Victoria; Chrome: "Google UK English Female"); the list below is matched in
+// order, then any voice whose name says "female", then the default voice.
+const FEMALE = [/aria/i, /jenny/i, /zira/i, /google uk english female/i, /samantha/i, /victoria/i, /karen/i, /moira/i, /tessa/i, /serena/i, /fiona/i, /female/i, /\bf\d\b|\+f\d/i];
+const MALE = [/guy/i, /david/i, /mark/i, /google uk english male/i, /daniel/i, /alex/i, /\bmale\b/i];
+
 export class Voice {
   constructor() {
     this.enabled = true;
     this.minGap = 3000;
     this.last = 0;
+    this.style = 'female';
+    this.pitch = 1.15;
+    this.rate = 1.06;
+    this.voice = null;
     this.ok = typeof window !== 'undefined' && 'speechSynthesis' in window;
+    if (this.ok) {
+      const pick = () => this.pick();
+      try {
+        window.speechSynthesis.addEventListener('voiceschanged', pick);
+      } catch {
+        /* older engines */
+      }
+      pick();
+    }
+  }
+
+  configure({ style, pitch, rate } = {}) {
+    const changed = style && style !== this.style;
+    if (style) this.style = style;
+    if (pitch) this.pitch = pitch;
+    if (rate) this.rate = rate;
+    if (changed || !this.voice) this.pick();
+  }
+
+  pick() {
+    if (!this.ok) return;
+    let list = [];
+    try {
+      list = window.speechSynthesis.getVoices() || [];
+    } catch {
+      return;
+    }
+    if (!list.length) return;
+    const en = list.filter((v) => /^en/i.test(v.lang || ''));
+    const pool = en.length ? en : list;
+    const pats = this.style === 'male' ? MALE : this.style === 'female' ? FEMALE : [];
+    let found = null;
+    for (const re of pats) {
+      // natural/online voices first when both exist
+      found = pool.find((v) => re.test(v.name) && /natural|online|neural/i.test(v.name)) || pool.find((v) => re.test(v.name));
+      if (found) break;
+    }
+    this.voice = found || pool.find((v) => v.default) || pool[0];
+  }
+
+  get name() {
+    return this.voice ? this.voice.name : '';
   }
 
   // prio 1 = flavor, 2 = important, 3 = interrupt anything
@@ -202,8 +255,12 @@ export class Voice {
     }
     try {
       const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.1;
-      u.pitch = 0.85;
+      if (this.voice) u.voice = this.voice;
+      u.rate = this.rate;
+      // a female voice gets a light lift; a voice that is not female (none
+      // installed) gets more so the announcer still reads as feminine
+      const femaleVoice = this.voice && FEMALE.some((re) => re.test(this.voice.name));
+      u.pitch = this.style === 'female' && !femaleVoice ? Math.min(2, this.pitch + 0.25) : this.style === 'male' ? 0.85 : this.pitch;
       u.volume = 1;
       synth.speak(u);
       this.last = now;
