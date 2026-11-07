@@ -65,12 +65,27 @@ app.get('/avatar', createAvatarHandler(path.join(ROOT, 'data', 'avatar-cache')))
 app.get('/api/assets', (_req, res) => {
   let files = [];
   try {
-    files = fs.readdirSync(ASSET_DIR).filter((f) => /\.(png|jpe?g|webp|gif|mp4|webm)$/i.test(f));
+    files = fs.readdirSync(ASSET_DIR).filter((f) => /\.(png|jpe?g|webp|gif|mp4|webm|mp3|m4a|aac|ogg|oga|wav)$/i.test(f));
   } catch {
     /* no assets yet */
   }
   res.json(files);
 });
+// Upload a soundtrack (or backdrop) from the director. Needs the director key
+// when one is set. Raw body, file name in ?name=. Saved to public/assets.
+const UPLOAD_TYPES = /\.(mp3|m4a|aac|ogg|oga|wav|png|jpe?g|webp|mp4|webm)$/i;
+app.post('/api/upload', express.raw({ type: () => true, limit: '60mb' }), (req, res) => {
+  if (DIRECTOR_KEY && req.query.key !== DIRECTOR_KEY) return res.status(403).json({ error: 'wrong or missing director key' });
+  const raw = path.basename(String(req.query.name || ''));
+  const name = raw.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+/, '').slice(0, 80);
+  if (!name || !UPLOAD_TYPES.test(name)) return res.status(400).json({ error: 'use an mp3, m4a, aac, ogg, wav, image or mp4/webm file' });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'empty file' });
+  fs.mkdirSync(ASSET_DIR, { recursive: true });
+  fs.writeFileSync(path.join(ASSET_DIR, name), req.body);
+  console.log(`[upload] ${name} (${Math.round(req.body.length / 1024)} KB)`);
+  res.json({ ok: true, name, size: req.body.length });
+});
+
 app.get('/api/health', (_req, res) =>
   res.json({
     ok: true,

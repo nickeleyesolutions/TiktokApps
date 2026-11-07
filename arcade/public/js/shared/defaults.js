@@ -110,7 +110,9 @@ export const DEFAULT_WEIGHTS = {
   boss: { hp: 1800, seconds: 60, fireEvery: 2.2 },
   guide: { enabled: true, oracle: true, cardSeconds: 4, everySeconds: 12, showSeconds: 4 },
   round: { intermissionSeconds: 8 },
-  audio: { master: 0.6, tts: true, ttsMinGapSeconds: 3, music: true, musicVolume: 0.35 },
+  // soundtrack: a file from public/assets (mp3/m4a/ogg/wav). While it plays,
+  // the built-in chiptune stays off unless layerChiptune is on.
+  audio: { master: 0.6, tts: true, ttsMinGapSeconds: 3, music: true, musicVolume: 0.35, soundtrack: '', soundtrackVolume: 0.5, layerChiptune: false },
   hud: { safeZones: false, feed: true, damageNumbers: true, names: true },
   owners: { usernames: [], allowModerators: true, trustAnchor: true, prefix: '!' },
   dev: { autoHotReload: false },
@@ -238,6 +240,8 @@ export const SCHEMA = [
   { group: 'Stream', path: 'audio.tts', label: 'TTS announcer', type: 'toggle' },
   { group: 'Stream', path: 'audio.music', label: 'Chiptune music', type: 'toggle' },
   { group: 'Stream', path: 'audio.musicVolume', label: 'Music volume', min: 0, max: 1, step: 0.05 },
+  { group: 'Stream', path: 'audio.soundtrackVolume', label: 'Soundtrack volume', min: 0, max: 1, step: 0.05 },
+  { group: 'Stream', path: 'audio.layerChiptune', label: 'Chiptune on top of soundtrack', type: 'toggle' },
   { group: 'Stream', path: 'round.intermissionSeconds', label: 'Victory screen (s)', min: 3, max: 30, step: 1 },
   { group: 'Stream', path: 'dev.autoHotReload', label: 'Auto hot-reload on code edit', type: 'toggle' },
 ];

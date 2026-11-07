@@ -27,7 +27,7 @@ fi
 id arena >/dev/null 2>&1 || useradd --system --create-home --uid 1500 --shell /usr/sbin/nologin arena
 mkdir -p /opt/arena /etc/arena /run/user/1500
 # keep live settings, hall of fame, recordings and avatar cache when re-run
-rsync -a --delete --exclude node_modules --exclude arcade/config --exclude arcade/data --exclude arcade/recordings "$REPO_DIR/" /opt/arena/ 2>/dev/null || cp -a "$REPO_DIR/." /opt/arena/
+rsync -a --delete --exclude node_modules --exclude arcade/config --exclude arcade/data --exclude arcade/recordings --exclude "arcade/public/assets/*" "$REPO_DIR/" /opt/arena/ 2>/dev/null || cp -a "$REPO_DIR/." /opt/arena/
 chown -R arena:arena /opt/arena /run/user/1500
 sudo -u arena bash -c 'cd /opt/arena/arcade && npm ci --omit=dev'
 

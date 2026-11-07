@@ -109,3 +109,18 @@ $('codeBtn').onclick = () => {
   socket.emit('cmd', { type: 'hotReload' });
   $('code').classList.remove('show');
 };
+
+$('upBtn').onclick = async () => {
+  const f = $('upFile').files[0];
+  if (!f) return ($('upMeta').textContent = 'Choose a file first.');
+  $('upMeta').textContent = `Uploading ${f.name} (${Math.round(f.size / 1024 / 1024 * 10) / 10} MB)...`;
+  try {
+    const r = await fetch(`/api/upload?key=${encodeURIComponent(key)}&name=${encodeURIComponent(f.name)}`, { method: 'POST', body: f });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    $('upMeta').textContent = `Uploaded ${d.name}. Pick it under Look > Soundtrack (or Backdrop).`;
+    panel.loadAssets();
+  } catch (e) {
+    $('upMeta').textContent = `Upload failed: ${e.message}`;
+  }
+};

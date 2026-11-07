@@ -170,12 +170,20 @@ export function buildPanel(root, api) {
   const bgSel = el('select', {}, [el('option', { value: '', text: 'Procedural synthwave' })]);
   bgSel.addEventListener('change', () => api.patch('backdrop.asset', bgSel.value));
   controls.push({ path: 'backdrop.asset', set: (v) => (bgSel.value = v || '') });
-  if (api.assets) {
+  const isAudio = (f) => /\.(mp3|m4a|aac|ogg|oga|wav)$/i.test(f);
+  const trackSel = el('select', {}, [el('option', { value: '', text: 'Soundtrack: none (built-in chiptune)' })]);
+  trackSel.addEventListener('change', () => api.patch('audio.soundtrack', trackSel.value));
+  controls.push({ path: 'audio.soundtrack', set: (v) => (trackSel.value = v || '') });
+  const loadAssets = () => {
+    if (!api.assets) return;
     api.assets().then((list) => {
-      for (const f of list) bgSel.appendChild(el('option', { value: f, text: f }));
+      for (const sel of [bgSel, trackSel]) while (sel.options.length > 1) sel.remove(1);
+      for (const f of list) (isAudio(f) ? trackSel : bgSel).appendChild(el('option', { value: f, text: isAudio(f) ? `Soundtrack: ${f}` : f }));
       bgSel.value = getPath(api.weights(), 'backdrop.asset') || '';
+      trackSel.value = getPath(api.weights(), 'audio.soundtrack') || '';
     });
-  }
+  };
+  loadAssets();
   const nameIn = (k) => {
     const i = el('input', { type: 'text', placeholder: `Team ${k} name (theme default)`, maxlength: '14' });
     i.addEventListener('change', () => api.patch(`teamNames.${k}`, i.value.trim()));
@@ -188,6 +196,8 @@ export function buildPanel(root, api) {
     themeSel,
     el('div', { style: 'height:6px' }),
     bgSel,
+    el('div', { style: 'height:6px' }),
+    trackSel,
     el('p', { class: 'note', text: 'Drop jpg/png/webp/mp4/webm files in public/assets to list them here.' }),
     el('div', { class: 'grid2', style: 'margin-top:6px' }, [nameIn('A'), nameIn('B')]),
   ];
@@ -241,5 +251,5 @@ export function buildPanel(root, api) {
     }
   }
   refresh(api.weights());
-  return { refresh, setChaos };
+  return { refresh, setChaos, loadAssets };
 }

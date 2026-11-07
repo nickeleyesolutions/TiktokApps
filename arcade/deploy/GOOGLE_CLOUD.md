@@ -165,6 +165,15 @@ The game screen is read-only; every control needs the director key.
 - OBS / Streamlabs: Add Browser Source > the `?obs` link, width 1080, height 1920,
   tick "Control audio via OBS".
 
+## Soundtrack
+
+Director > **Soundtrack & backdrops** > choose an MP3 (or M4A, OGG, WAV) > **Upload**,
+then Look > **Soundtrack** > pick it. It loops, dips under cinematics, and
+replaces the built-in chiptune (Stream > "Chiptune on top of soundtrack" to
+layer both). Volume: Stream > Soundtrack volume. Uploaded files live in
+`/opt/arena/arcade/public/assets` and survive updates. Use music you have the
+rights to stream.
+
 ## Rehearse the broadcast without TikTok
 
 Streams to a stand-in receiver on the VM for 25 seconds and reports the game

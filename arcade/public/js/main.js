@@ -150,7 +150,8 @@ function applyWeights(w) {
   voice.enabled = !!weights.audio.tts;
   voice.minGap = weights.audio.ttsMinGapSeconds * 1000;
   sfx.setVolume(weights.audio.master);
-  music.on = !!weights.audio.music;
+  setSoundtrack(weights.audio.soundtrack);
+  music.on = !!weights.audio.music && (!soundtrack.el || weights.audio.layerChiptune);
   music.vol = weights.audio.musicVolume;
   backdrop.setAsset(weights.backdrop.asset, serverMode);
   layout();
@@ -265,6 +266,39 @@ let fpsT = 0;
 let fps = 0;
 let postWasOn = null;
 let musicT = 0;
+
+// Soundtrack: a plain looping <audio> element (the browser decodes MP3 with
+// next to no CPU). Ducks under cinematics, rests on the victory screen.
+const soundtrack = { el: null, name: '' };
+function setSoundtrack(name) {
+  if (!serverMode) name = '';
+  if (name === soundtrack.name) return;
+  soundtrack.name = name;
+  if (soundtrack.el) {
+    soundtrack.el.pause();
+    soundtrack.el.removeAttribute('src');
+    soundtrack.el.load();
+    soundtrack.el = null;
+  }
+  if (!name) return;
+  const a = new Audio('/assets/' + encodeURIComponent(name));
+  a.loop = true;
+  a.preload = 'auto';
+  a.volume = 0;
+  soundtrack.el = a;
+  a.play().catch(() => {}); // retried below until the capture app allows sound
+}
+function updateSoundtrack(dt) {
+  const a = soundtrack.el;
+  if (!a) return;
+  if (a.paused && (soundtrackRetry -= dt) <= 0) {
+    soundtrackRetry = 2;
+    a.play().catch(() => {});
+  }
+  const target = weights.audio.soundtrackVolume * weights.audio.master * (battle.phase === 'victory' ? 0.6 : battle.cine ? 0.45 : 1);
+  a.volume = clamp(a.volume + (target - a.volume) * Math.min(1, dt * 3), 0, 1);
+}
+let soundtrackRetry = 0;
 let audioRetry = 1;
 
 // Dimension layer: shader field + floating hypercube, between backdrop and battle.
@@ -404,6 +438,7 @@ function frame(now) {
   autoQuality(dt);
   // capture apps (LIVE Studio Link source, OBS) may start the page muted;
   // keep asking for sound until the browser allows it
+  updateSoundtrack(dt);
   if (!sfx.ready && (audioRetry -= dt) <= 0) {
     audioRetry = 2;
     sfx.ensure();
@@ -501,7 +536,7 @@ async function boot() {
   }
   last = performance.now();
   requestAnimationFrame(frame);
-  window.__arena = { battle, weights: () => weights, api, fps: () => fps, perf: perfSummary, dbg: { hud, hctx, wctx, backdrop, fx, proj, S: () => S, theme: () => theme, hall: () => hall } };
+  window.__arena = { battle, weights: () => weights, api, fps: () => fps, perf: perfSummary, dbg: { hud, hctx, wctx, backdrop, fx, proj, S: () => S, theme: () => theme, hall: () => hall, soundtrack, music } };
 }
 
 boot();
